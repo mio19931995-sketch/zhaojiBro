@@ -1,0 +1,48 @@
+node_modules/
+dist/
+release/
+.venv/
+data/
+__pycache__/
+*.pyc
+.env
+.test-data/
+logs/
+reference/
+*.tsbuildinfo
+
+# Local audit material, user recordings, publication tooling and caches
+.impeccable/
+.pytest_cache/
+.publish-tools/
+verification/
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+cookies*.txt
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Internal planning and reports refer to a private workstation and recording
+/DESIGN.md
+/PRODUCT.md
+/VALIDATION.md
+/VIDEO_PARITY.md
+
+# Live audit scripts read local account settings or depend on private fixtures
+/tests/usability-llm-live.py
+/tests/usability-audit.mjs
+
+# Keep the reproducible offline suite in the public repository
+/tests/*.mjs
+/tests/smoke_live.py
+/tests/probe-subtitles.py
+
+# Original reference branding stays local and is not distributed
+/public/lulu-mascot.png
+/public/lulu.ico
