@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import time
+from types import SimpleNamespace
 import wave
 import zipfile
 from pathlib import Path
@@ -18,6 +19,25 @@ client=TestClient(app,headers={'X-Lulu-Client':'desktop'})
 
 
 def make_item(title='测试作品',**kwargs):return store.add(title,**kwargs)
+
+
+def test_auto_language_keeps_english_and_simplifies_detected_chinese(monkeypatch,tmp_path):
+    import faster_whisper
+    store.save_settings({'language':'auto'})
+    monkeypatch.setattr(engine,'installed',lambda _:True)
+    source=tmp_path/'speech.wav';source.write_bytes(b'fixture')
+    samples=[('en','This is an English transcript.','This is an English transcript.'),('zh','軟體裡有兩個問題','软件里有两个问题')]
+    for detected,text,expected in samples:
+        class Model:
+            def __init__(self,*args,**kwargs):pass
+            def transcribe(self,*args,**kwargs):
+                assert kwargs['language'] is None
+                return iter([SimpleNamespace(start=0,end=1,text=text)]),SimpleNamespace(duration=1,language=detected)
+        monkeypatch.setattr(faster_whisper,'WhisperModel',Model)
+        item=make_item(f'自动识别-{detected}',media_path=str(source),duration=1)
+        engine.process(item['id']);result=store.get(item['id'])
+        assert result['transcript']==expected
+        assert result['metadata']['detected_language']==detected
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'), reason='ffmpeg is required for video thumbnails')

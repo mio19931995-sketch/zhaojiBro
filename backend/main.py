@@ -205,6 +205,21 @@ def pause(item_id: str):
     return {'ok': True}
 
 
+@app.post('/api/items/{item_id}/retranscribe')
+def retranscribe(item_id: str):
+    item = require(item_id)
+    if item_id in engine.pending:
+        raise ValueError('当前任务仍在处理中')
+    if not item['media_path'] and not item['source_url']:
+        raise ValueError('没有可重新转录的音视频素材')
+    metadata = dict(item['metadata'])
+    metadata.pop('detected_language', None)
+    metadata.pop('transcript_source', None)
+    store.update(item_id, transcript='', segments=[], status='idle', progress=0, phase='等待重新转录', error='', metadata=metadata)
+    engine.enqueue(item_id)
+    return {'ok': True}
+
+
 @app.post('/api/start-all')
 def start_all():
     count = 0

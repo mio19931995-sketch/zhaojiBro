@@ -175,7 +175,8 @@ function TaskRow({ item, select, selected, refresh, notify, checked, toggleCheck
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   useEffect(() => { setThumbnailFailed(false); }, [item.id, item.media_path, item.metadata.cover_path]);
   async function action(command: string) {
-    try { if(command==='start')await preparePlatform(item);await api(`/items/${item.id}/${command}`, 'POST'); await refresh(); } catch (e) { notify((e as Error).message, true); }
+    if (command === 'retranscribe' && !window.confirm('确定重新转录这条任务吗？\n现有文稿会由新的识别结果替换。')) return;
+    try { if(command==='start')await preparePlatform(item);await api(`/items/${item.id}/${command}`, 'POST'); await refresh(); if(command==='retranscribe')notify('已按自动语言识别重新转录'); } catch (e) { notify((e as Error).message, true); }
   }
   const active = ['processing','queued'].includes(item.status);
   const video = /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(item.media_path);
@@ -183,7 +184,7 @@ function TaskRow({ item, select, selected, refresh, notify, checked, toggleCheck
   return <article className={`task-row selectable ${selected === item.id ? 'chosen' : ''} ${checked ? 'batch-selected' : ''}`}>
     <input className="task-select" type="checkbox" aria-label={`选择任务 ${item.title}`} checked={checked} disabled={active} onChange={() => toggleChecked(item.id)}/>
     <button className="task-open" onClick={() => select(item.id)}><span className={`task-icon ${active ? 'working' : ''} ${thumbnail ? 'thumbnail' : ''}`}>{thumbnail ? <img loading="lazy" src={`/api/items/${item.id}/cover`} alt="" onError={() => setThumbnailFailed(true)}/> : active ? <CircleNotch size={23}/> : item.status === 'done' ? <FileText size={23}/> : <FileAudio size={23}/>}</span><span className="task-copy"><strong>{item.title}</strong><small>{item.source_url ? '来自链接' : '本地素材'}{item.duration > 0 && ` · ${duration(item.duration)}`} · {item.phase}</small></span></button>
-    <div className="task-actions"><span className={`status-pill ${item.status}`}>{labels[item.status]}</span><div className="task-buttons">{item.status === 'done' ? <Button onClick={() => select(item.id)}>查看<CaretRight size={13}/></Button> : <Button primary={!active} onClick={() => action(active ? 'pause' : 'start')}>{active ? <Pause size={14}/> : <Play size={14}/>} {active ? '暂停' : item.status === 'error' ? '重试' : '开始'}</Button>}<Button title={active ? '请先暂停任务再删除' : '删除任务'} disabled={active} onClick={remove}><Trash size={13}/>删除</Button></div></div>
+    <div className="task-actions"><span className={`status-pill ${item.status}`}>{labels[item.status]}</span><div className="task-buttons">{item.status === 'done' ? <><Button onClick={() => select(item.id)}>查看<CaretRight size={13}/></Button><Button title="按当前语言设置重新识别" onClick={() => action('retranscribe')}><ArrowClockwise size={13}/>重转</Button></> : <Button primary={!active} onClick={() => action(active ? 'pause' : 'start')}>{active ? <Pause size={14}/> : <Play size={14}/>} {active ? '暂停' : item.status === 'error' ? '重试' : '开始'}</Button>}<Button title={active ? '请先暂停任务再删除' : '删除任务'} disabled={active} onClick={remove}><Trash size={13}/>删除</Button></div></div>
     {active && <progress aria-label="任务进度" value={item.progress} max={100}/>}
     {item.error && <div className="inline-error">{item.error}</div>}
   </article>;

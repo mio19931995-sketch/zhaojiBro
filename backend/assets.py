@@ -150,7 +150,8 @@ def acquire(item):
                     info = ydl.extract_info(item['source_url'], download=True)
             except yt_dlp.utils.DownloadError:
                 metadata['subtitle_warning'] = '字幕获取未成功，已改为下载媒体并识别语音'
-            for sub in sorted(directory.iterdir(), key=lambda p: ('zh' not in p.name,p.name)):
+            preferred = str(info.get('language') or (store.settings()['language'] if store.settings()['language'] != 'auto' else '')).lower()
+            for sub in sorted(directory.iterdir(), key=lambda p: (bool(preferred) and f'.{preferred}' not in p.name.lower(), p.name)):
                 if sub.suffix in ('.srt','.vtt','.json3'):
                     try:
                         subtitle_segments = read_subtitle(sub)

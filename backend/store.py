@@ -84,7 +84,7 @@ def update(item_id, **fields):
         con.execute(f"UPDATE items SET {','.join(k+'=?' for k in fields)} WHERE id=?", (*fields.values(), item_id))
 
 
-DEFAULTS = {'model': 'base', 'language': 'zh', 'llm_url': 'http://127.0.0.1:11434/v1', 'llm_model': '',
+DEFAULTS = {'model': 'base', 'language': 'auto', 'llm_url': 'http://127.0.0.1:11434/v1', 'llm_model': '',
             'theme': 'light', 'cookies_path': '', 'feishu_app_id': '', 'feishu_base': '', 'feishu_table': '',
             'feishu_title_field': '标题', 'feishu_text_field': '转录文稿', 'feishu_url_field': '原作品链接', 'obsidian_path': ''}
 DEFAULTS.update({'download_mode': 'audio', 'keep_media': 'false', 'download_cover': 'false',

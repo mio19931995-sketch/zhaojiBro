@@ -259,7 +259,8 @@ def process(item_id):
     path.write_text(transcript, encoding='utf-8')
     if path.read_text(encoding='utf-8') != transcript:
         raise RuntimeError('文稿保存校验失败')
-    store.update(item_id, transcript=transcript, segments=result, duration=duration,
+    metadata = item['metadata'] | {'detected_language': getattr(info, 'language', '') or cfg['language']}
+    store.update(item_id, transcript=transcript, segments=result, duration=duration, metadata=metadata,
                  status='done', progress=100, phase='转录完成' if result else '处理完成，未检测到语音')
     assets.finish(item_id)
     del model

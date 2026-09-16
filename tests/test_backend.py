@@ -40,6 +40,18 @@ def test_saved_transcript_and_timeline_automatically_convert_to_simplified_chine
     assert converted['segments'][0]['text'] == '软件里有两个问题'
 
 
+def test_retranscribe_clears_old_text_and_enqueues_media(monkeypatch,tmp_path):
+    media=tmp_path/'english.mp4';media.write_bytes(b'fixture')
+    item=store.add('English video',media_path=str(media),transcript='错误旧文稿',segments=[{'start':0,'end':1,'text':'错误旧文稿'}],status='done',progress=100,metadata={'detected_language':'zh'})
+    queued=[]
+    monkeypatch.setattr(engine,'enqueue',lambda item_id:queued.append(item_id))
+    response=client.post(f"/api/items/{item['id']}/retranscribe")
+    assert response.status_code==200 and queued==[item['id']]
+    refreshed=store.get(item['id'])
+    assert refreshed['status']=='idle' and not refreshed['transcript'] and not refreshed['segments']
+    assert 'detected_language' not in refreshed['metadata']
+
+
 def test_invalid_subtitle_does_not_create_a_document():
     before = len(store.items())
     response = client.post('/api/import', files={'files': ('invalid.srt', b'no timestamps', 'text/plain')})
