@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+from opencc import OpenCC
 from . import store
 
 MODELS = {
@@ -25,11 +26,31 @@ cancelled = set()
 job_lock = threading.RLock()
 worker_started = False
 thumbnail_lock = threading.Lock()
+simplifier = OpenCC('tw2sp')
 
 
 def run_command(args, **kwargs):
     return subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace',
                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), **kwargs)
+
+
+def to_simplified(text):
+    return simplifier.convert(text) if text else text
+
+
+def simplify_saved_content():
+    changed = 0
+    for item in store.items():
+        transcript = to_simplified(item['transcript'])
+        segments = [{**segment, 'text': to_simplified(segment['text'])} for segment in item['segments']]
+        if transcript == item['transcript'] and segments == item['segments']:
+            continue
+        store.update(item['id'], transcript=transcript, segments=segments)
+        document = store.DATA / 'documents' / f"{item['id']}.txt"
+        if document.is_file():
+            document.write_text(transcript, encoding='utf-8')
+        changed += 1
+    return changed
 
 
 def media_info(path):
@@ -226,7 +247,10 @@ def process(item_id):
     duration = info.duration or item['duration'] or 1
     for s in segments:
         check_cancel(item_id)
-        result.append({'start': round(s.start, 3), 'end': round(s.end, 3), 'text': s.text.strip()})
+        text = s.text.strip()
+        if cfg['language'] == 'zh' or getattr(info, 'language', '') == 'zh':
+            text = to_simplified(text)
+        result.append({'start': round(s.start, 3), 'end': round(s.end, 3), 'text': text})
         store.update(item_id, segments=result, transcript='\n'.join(p['text'] for p in result),
                      progress=min(98, 30 + 68 * s.end / duration), phase=f'正在转录 · {s.end:.0f} / {duration:.0f} 秒')
     check_cancel(item_id)
@@ -277,12 +301,12 @@ def export_content(item, fmt):
     if fmt == 'srt':
         if not item['segments']:
             raise ValueError('这份文稿没有时间戳，请导出 TXT 或 Markdown')
-        return '\n\n'.join(f'{i+1}\n{stamp(s["start"], True)} --> {stamp(s["end"], True)}\n{s["text"]}' for i, s in enumerate(item['segments'])) + '\n'
+        return to_simplified('\n\n'.join(f'{i+1}\n{stamp(s["start"], True)} --> {stamp(s["end"], True)}\n{s["text"]}' for i, s in enumerate(item['segments'])) + '\n')
     if fmt == 'md':
         source = f'\n来源：{item["source_url"]}\n' if item['source_url'] else ''
         body = '\n\n'.join(f'[{stamp(s["start"])}] {s["text"]}' for s in item['segments']) if item['segments'] else item['transcript']
-        return f'# {item["title"]}\n{source}\n{body}\n'
-    return item['transcript']
+        return to_simplified(f'# {item["title"]}\n{source}\n{body}\n')
+    return to_simplified(item['transcript'])
 
 
 def parse_srt(content):

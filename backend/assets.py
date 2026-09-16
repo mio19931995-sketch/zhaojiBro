@@ -55,14 +55,14 @@ def read_subtitle(path):
     if path.suffix == '.json3':
         data = json.loads(text)
         return [{'start': e['tStartMs']/1000, 'end': (e['tStartMs']+e.get('dDurationMs', 0))/1000,
-                 'text': ''.join(s.get('utf8','') for s in e.get('segs',[])).strip()}
+                 'text': engine.to_simplified(''.join(s.get('utf8','') for s in e.get('segs',[])).strip())}
                 for e in data.get('events',[]) if e.get('segs') and ''.join(s.get('utf8','') for s in e['segs']).strip()]
     # VTT can omit the hours component. Normalize it before using the SRT parser.
     text = re.sub(r'(?m)^(\d{2}:\d{2}[.,]\d{3})(\s*-->\s*)(\d{2}:\d{2}[.,]\d{3})', r'00:\1\g<2>00:\3', text)
     text = re.sub(r'(--> [\d:.,]+)[^\n]*', r'\1', text)
     segments = engine.parse_srt(text)
     for s in segments:
-        s['text'] = html.unescape(re.sub('<[^>]+>', '', s['text']))
+        s['text'] = engine.to_simplified(html.unescape(re.sub('<[^>]+>', '', s['text'])))
     return segments
 
 

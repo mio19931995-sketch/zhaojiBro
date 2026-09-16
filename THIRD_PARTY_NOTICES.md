@@ -14,6 +14,7 @@
 - [Phosphor Icons](https://github.com/phosphor-icons/react)
 - [FastAPI](https://github.com/fastapi/fastapi)
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+- [OpenCC Python](https://github.com/yichen0831/opencc-python)
 - [CTranslate2](https://github.com/OpenNMT/CTranslate2)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 - [FFmpeg](https://ffmpeg.org/)

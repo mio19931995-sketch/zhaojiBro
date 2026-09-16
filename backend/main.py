@@ -21,6 +21,7 @@ from . import store, engine, integrations, secrets, workflows, assets
 
 @asynccontextmanager
 async def lifespan(app):
+    engine.simplify_saved_content()
     engine.start_worker()
     yield
 
@@ -147,7 +148,8 @@ async def import_files(files: list[UploadFile] = File(...)):
                 segments = engine.parse_srt(text) if suffix == '.srt' else []
                 if suffix == '.srt' and not segments:
                     raise ValueError('字幕格式无法识别，请使用标准 SRT 格式')
-                result.append(store.add(Path(filename).stem, kind='document', transcript='\n'.join(s['text'] for s in segments) if segments else text,
+                segments = [{**segment, 'text': engine.to_simplified(segment['text'])} for segment in segments]
+                result.append(store.add(Path(filename).stem, kind='document', transcript='\n'.join(s['text'] for s in segments) if segments else engine.to_simplified(text),
                     segments=segments, status='done', progress=100, phase='文稿已导入'))
             else:
                 result.append(store.add(Path(filename).stem, media_path=str(path), duration=engine.media_info(path)))
@@ -230,8 +232,10 @@ def edit(item_id: str, body: EditInput):
         for s in body.segments:
             if not isinstance(s.get('text'), str) or not isinstance(s.get('start'), (int, float)) or not isinstance(s.get('end'), (int, float)) or s['start'] < 0 or s['end'] < s['start']:
                 raise ValueError('无效的字幕时间戳')
-        values['transcript'] = '\n'.join(s['text'] for s in body.segments)
+        values['segments'] = [{**segment, 'text': engine.to_simplified(segment['text'])} for segment in body.segments]
+        values['transcript'] = '\n'.join(segment['text'] for segment in values['segments'])
     elif body.transcript is not None and body.transcript != item['transcript']:
+        values['transcript'] = engine.to_simplified(body.transcript)
         values['segments'] = []  # Plain text edits cannot silently leave an obsolete SRT.
     store.update(item_id, **values)
     return require(item_id)
@@ -245,7 +249,7 @@ class DocumentInput(BaseModel):
 
 @app.post('/api/documents')
 def document(body: DocumentInput):
-    return store.add(body.title, kind='document', transcript=body.text, folder=body.folder, status='done', phase='文稿已保存', progress=100)
+    return store.add(body.title, kind='document', transcript=engine.to_simplified(body.text), folder=body.folder, status='done', phase='文稿已保存', progress=100)
 
 
 @app.delete('/api/items/{item_id}')
@@ -357,7 +361,7 @@ def process_text(body: TextInput):
         text = integrations.process_text(body.text, body.action, body.instruction)
     except Exception as exc:
         raise ValueError('文案处理失败：' + str(exc)[:700]) from exc
-    return store.add(body.title, kind='output', transcript=text, status='done', progress=100, phase='文案处理完成')
+    return store.add(body.title, kind='output', transcript=engine.to_simplified(text), status='done', progress=100, phase='文案处理完成')
 
 
 @app.get('/api/voices')
@@ -377,15 +381,16 @@ class VoiceInput(BaseModel):
 
 @app.post('/api/voice')
 def voice(body: VoiceInput):
+    text = engine.to_simplified(body.text)
     output_id = uuid.uuid4().hex
     path = store.DATA / 'outputs' / f'{output_id}.wav'
     request_file = store.DATA / 'outputs' / f'{output_id}.json'
-    request_file.write_text(json.dumps(body.model_dump() | {'output': str(path)}, ensure_ascii=False), encoding='utf-8-sig')
+    request_file.write_text(json.dumps(body.model_dump() | {'text': text, 'output': str(path)}, ensure_ascii=False), encoding='utf-8-sig')
     try:
         result = engine.run_command(['powershell.exe', '-NoProfile', '-File', str(Path(__file__).with_name('voice.ps1')), str(request_file)], timeout=300)
         if result.returncode or not path.is_file():
             raise ValueError('Windows 配音失败，请检查语音包是否可用')
-        return store.add(body.title, kind='voice', media_path=str(path), transcript=body.text,
+        return store.add(body.title, kind='voice', media_path=str(path), transcript=text,
                          duration=engine.media_info(path), status='done', progress=100, phase='配音已生成')
     finally:
         request_file.unlink(missing_ok=True)

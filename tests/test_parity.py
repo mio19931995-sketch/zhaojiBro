@@ -96,13 +96,13 @@ def test_subtitle_preference_skips_model_and_media(monkeypatch):
         def __enter__(self):return self
         def __exit__(self,*a):pass
         def extract_info(self,*a,**kw):
-            directory=store.DATA/'media'/item['id'];(directory/'source.zh.vtt').write_text('WEBVTT\n\n00:00.200 --> 00:02.400\n字幕全文，不应调用模型\n\n',encoding='utf-8')
+            directory=store.DATA/'media'/item['id'];(directory/'source.zh.vtt').write_text('WEBVTT\n\n00:00.200 --> 00:02.400\n字幕全文，軟體裡有兩個問題\n\n',encoding='utf-8')
             return {'title':'平台字幕作品','duration':3}
     monkeypatch.setattr(yt_dlp,'YoutubeDL',YDL);monkeypatch.setattr(engine,'validate_url',lambda u:u)
     monkeypatch.setattr(engine,'installed',lambda _:pytest.fail('字幕可用时不应加载模型'))
     engine.process(item['id']);result=store.get(item['id'])
     assert len(calls)==1 and calls[0]['skip_download']
-    assert result['segments']==[{'start':.2,'end':2.4,'text':'字幕全文，不应调用模型'}]
+    assert result['segments']==[{'start':.2,'end':2.4,'text':'字幕全文，软件里有两个问题'}]
     assert result['phase']=='已提取平台字幕' and not result['media_path']
 
 

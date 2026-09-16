@@ -4,4 +4,5 @@ python-multipart>=0.0.20,<1
 faster-whisper>=1.1,<2
 yt-dlp>=2026.3.3
 httpx>=0.28,<1
+opencc-python-reimplemented>=0.1.7,<1
 pytest>=8,<10

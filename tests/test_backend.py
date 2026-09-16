@@ -31,6 +31,15 @@ def test_import_edit_and_export_timestamped_transcript():
     assert client.get(f'/api/items/{item["id"]}/export/txt').content.decode('utf-8-sig') == '改写后的全文'
 
 
+def test_saved_transcript_and_timeline_automatically_convert_to_simplified_chinese():
+    item = store.add('繁體口播稿', transcript='軟體裡有兩個問題',
+                     segments=[{'start': 0, 'end': 2, 'text': '軟體裡有兩個問題'}], status='done')
+    assert engine.simplify_saved_content() >= 1
+    converted = store.get(item['id'])
+    assert converted['transcript'] == '软件里有两个问题'
+    assert converted['segments'][0]['text'] == '软件里有两个问题'
+
+
 def test_invalid_subtitle_does_not_create_a_document():
     before = len(store.items())
     response = client.post('/api/import', files={'files': ('invalid.srt', b'no timestamps', 'text/plain')})
