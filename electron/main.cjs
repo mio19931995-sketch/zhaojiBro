@@ -60,6 +60,8 @@ async function start() {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, spellcheck: false },
   });
   window.removeMenu();
+  window.on('enter-full-screen', () => window.webContents.send('lulu:fullscreen-changed', true));
+  window.on('leave-full-screen', () => window.webContents.send('lulu:fullscreen-changed', false));
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(baseURL + '/')) event.preventDefault(); });
   window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {

@@ -7,4 +7,9 @@ contextBridge.exposeInMainWorld('desktop', {
   platform: options => ipcRenderer.invoke('lulu:platform', options),
   stopPlatform: () => ipcRenderer.invoke('lulu:stop-platform'),
   setFullscreen: value => ipcRenderer.invoke('lulu:set-fullscreen', value),
+  onFullscreenChange: callback => {
+    const handler = (_event, value) => callback(Boolean(value));
+    ipcRenderer.on('lulu:fullscreen-changed', handler);
+    return () => ipcRenderer.removeListener('lulu:fullscreen-changed', handler);
+  },
 });

@@ -203,21 +203,26 @@ function Inspector({ item, close, notify, refresh, navigate }: Shared & { item?:
         window.desktop?.setFullscreen?.(false).catch(() => {});
       }
     };
+    const unsubscribe = window.desktop?.onFullscreenChange?.(setVideoFullscreen);
     document.addEventListener('fullscreenchange', changed);
     document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('fullscreenchange', changed); document.removeEventListener('keydown', escape); };
+    return () => { unsubscribe?.(); document.removeEventListener('fullscreenchange', changed); document.removeEventListener('keydown', escape); };
   }, [videoFullscreen]);
   async function toggleVideoFullscreen() {
     const frame = videoFrame.current;
     if (!frame) return;
+    if (window.desktop?.setFullscreen) {
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen();
+        setVideoFullscreen(await window.desktop.setFullscreen(!videoFullscreen));
+      } catch { notify('进入全屏失败，请重试', true); }
+      return;
+    }
     try {
       if (document.fullscreenElement) { await document.exitFullscreen(); return; }
-      if (videoFullscreen) { setVideoFullscreen(false); await window.desktop?.setFullscreen?.(false); return; }
       await frame.requestFullscreen();
     } catch {
-      if (!window.desktop?.setFullscreen) { notify('当前环境无法进入全屏', true); return; }
-      try { await window.desktop.setFullscreen(true); setVideoFullscreen(true); }
-      catch { notify('进入全屏失败，请重试', true); }
+      notify('当前环境无法进入全屏', true);
     }
   }
   const active = item && ['processing','queued'].includes(item.status);
