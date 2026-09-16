@@ -395,7 +395,7 @@ def voices():
 
 class VoiceInput(BaseModel):
     text: str = Field(min_length=1, max_length=20000)
-    voice: str = ''
+    voice: str = Field(default='', max_length=500)
     rate: int = Field(default=0, ge=-10, le=10)
     title: str = '新配音'
 
