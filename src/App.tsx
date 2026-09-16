@@ -261,9 +261,9 @@ function Inspector({ item, close, notify, refresh, navigate }: Shared & { item?:
     const container = documentBody.current;
     const line = tab === 'text' ? syncedLines.current[activeSegment] : timelineLines.current[activeSegment];
     if (!container || !line) return;
-    const top = line.offsetTop - container.clientHeight / 2 + line.clientHeight / 2;
-    container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-  }, [activeSegment, editingText, tab]);
+    const top = container.scrollTop + line.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    container.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+  }, [activeSegment, playbackTime, editingText, tab, detail?.id, segments.length]);
   function playSegment(segment: Segment) {
     if (!player.current) return;
     player.current.currentTime = segment.start;
