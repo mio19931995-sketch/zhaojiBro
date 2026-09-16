@@ -1,0 +1,71 @@
+.video-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 7px;
+  background: #111;
+}
+
+.video-frame > video {
+  display: block;
+  object-fit: contain;
+}
+
+.video-frame > video::-webkit-media-controls-fullscreen-button {
+  display: none;
+}
+
+.video-fullscreen {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: #fff;
+  background: #111b;
+  border: 1px solid #ffffff2e;
+  border-radius: 7px;
+  box-shadow: 0 2px 9px #0005;
+}
+
+.video-fullscreen:hover {
+  background: #111e;
+}
+
+.video-frame:fullscreen,
+.video-frame.window-fullscreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  background: #000;
+}
+
+.video-frame:fullscreen > video,
+.video-frame.window-fullscreen > video,
+.video-frame > video:fullscreen {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  object-fit: contain;
+  background: #000;
+}
+
+.video-frame.window-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.video-frame:fullscreen .video-fullscreen,
+.video-frame.window-fullscreen .video-fullscreen {
+  top: 18px;
+  right: 18px;
+}

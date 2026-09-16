@@ -6,4 +6,5 @@ contextBridge.exposeInMainWorld('desktop', {
   openExternal: url => ipcRenderer.invoke('lulu:open-external', url),
   platform: options => ipcRenderer.invoke('lulu:platform', options),
   stopPlatform: () => ipcRenderer.invoke('lulu:stop-platform'),
+  setFullscreen: value => ipcRenderer.invoke('lulu:set-fullscreen', value),
 });

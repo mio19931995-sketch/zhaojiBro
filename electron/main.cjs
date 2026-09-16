@@ -92,6 +92,7 @@ async function start() {
   ipcMain.handle('lulu:platform', async (event, options) => { localEvent(event); return platform.capture(options,baseURL,dataDir); });
   ipcMain.handle('lulu:stop-platform', event => { localEvent(event); platform.stop(); });
   ipcMain.handle('lulu:open-external', async (event, url) => { localEvent(event); const parsed = new URL(url); if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('不支持的链接'); await shell.openExternal(url); });
+  ipcMain.handle('lulu:set-fullscreen', (event, value) => { localEvent(event); window.setFullScreen(Boolean(value)); return window.isFullScreen(); });
   await window.loadURL(baseURL);
   window.show();
   fs.writeFileSync(path.join(logDir, 'runtime.json'), JSON.stringify({ url: baseURL, pid: process.pid, visible: window.isVisible() }));

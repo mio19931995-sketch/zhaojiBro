@@ -28,7 +28,7 @@ export function duration(seconds: number): string {
 export const labels: Record<string, string> = { idle: '待开始', queued: '排队中', processing: '处理中', done: '已完成', error: '需重试', paused: '已暂停' };
 
 declare global {
-  interface Window { desktop?: { openData: () => Promise<void>; showItem: (id: string,kind?:string) => Promise<void>; chooseFolder: () => Promise<string>; openExternal: (url: string) => Promise<void>; platform:(options:{url:string;limit?:number;collectionId?:string;loginOnly?:boolean})=>Promise<{entries:any[];complete:boolean;error:string}>; stopPlatform:()=>Promise<void> } }
+  interface Window { desktop?: { openData: () => Promise<void>; showItem: (id: string,kind?:string) => Promise<void>; chooseFolder: () => Promise<string>; openExternal: (url: string) => Promise<void>; platform:(options:{url:string;limit?:number;collectionId?:string;loginOnly?:boolean})=>Promise<{entries:any[];complete:boolean;error:string}>; stopPlatform:()=>Promise<void>; setFullscreen:(value:boolean)=>Promise<boolean> } }
 }
 
 export function openExternal(url:string){ if(window.desktop)return window.desktop.openExternal(url);window.open(url,'_blank','noopener,noreferrer');return Promise.resolve(); }

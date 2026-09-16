@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
-import { Headphones, FileText, Stack, Microphone, List, User, Folder, PencilSimple, Waveform, Scissors, Cube, GearSix, DownloadSimple, UploadSimple, Link, Play, Pause, Check, X, MagnifyingGlass, ArrowsOutSimple, SidebarSimple, ArrowSquareOut, ArrowClockwise, Trash, Copy, FloppyDisk, CaretRight, FileAudio, Plus, CircleNotch, BookOpen, CloudArrowUp, Record, Stop, CaretDown, DotsThree, Monitor } from '@phosphor-icons/react';
+import { Headphones, FileText, Stack, Microphone, List, User, Folder, PencilSimple, Waveform, Scissors, Cube, GearSix, DownloadSimple, UploadSimple, Link, Play, Pause, Check, X, MagnifyingGlass, ArrowsOutSimple, ArrowsInSimple, SidebarSimple, ArrowSquareOut, ArrowClockwise, Trash, Copy, FloppyDisk, CaretRight, FileAudio, Plus, CircleNotch, BookOpen, CloudArrowUp, Record, Stop, CaretDown, DotsThree, Monitor } from '@phosphor-icons/react';
 import { api, duration, labels, preparePlatform, reveal } from './api';
 import type { Item, Model, State, Settings, Entry, Segment } from './api';
 import { Button, Empty } from './components';
@@ -172,7 +172,9 @@ function Inspector({ item, close, notify, refresh, navigate }: Shared & { item?:
   const [dirty, setDirty] = useState(false);
   const [tab, setTab] = useState('text');
   const [saving, setSaving] = useState(false);
+  const [videoFullscreen, setVideoFullscreen] = useState(false);
   const player = useRef<HTMLMediaElement | null>(null);
+  const videoFrame = useRef<HTMLDivElement | null>(null);
   useEffect(() => { setDirty(false); setDetail(null); setTab('text'); }, [item?.id]);
   useEffect(() => {
     let ignore = false;
@@ -193,12 +195,37 @@ function Inspector({ item, close, notify, refresh, navigate }: Shared & { item?:
     if(kind==='feishu'){requestFeishu([detail.id]);return;}
     try { const r = await api(`/${kind}/export`, 'POST', { ids: [detail.id] }); notify(`已导出 ${r.count} 份文稿`); } catch (e) { notify((e as Error).message, true); }
   }
+  useEffect(() => {
+    const changed = () => setVideoFullscreen(document.fullscreenElement === videoFrame.current);
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && videoFullscreen && !document.fullscreenElement) {
+        setVideoFullscreen(false);
+        window.desktop?.setFullscreen?.(false).catch(() => {});
+      }
+    };
+    document.addEventListener('fullscreenchange', changed);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('fullscreenchange', changed); document.removeEventListener('keydown', escape); };
+  }, [videoFullscreen]);
+  async function toggleVideoFullscreen() {
+    const frame = videoFrame.current;
+    if (!frame) return;
+    try {
+      if (document.fullscreenElement) { await document.exitFullscreen(); return; }
+      if (videoFullscreen) { setVideoFullscreen(false); await window.desktop?.setFullscreen?.(false); return; }
+      await frame.requestFullscreen();
+    } catch {
+      if (!window.desktop?.setFullscreen) { notify('当前环境无法进入全屏', true); return; }
+      try { await window.desktop.setFullscreen(true); setVideoFullscreen(true); }
+      catch { notify('进入全屏失败，请重试', true); }
+    }
+  }
   const active = item && ['processing','queued'].includes(item.status);
   const video = detail && /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(detail.media_path);
   return <aside className="inspector"><div className="inspector-heading"><h2>文稿预览</h2><Button title="关闭预览" onClick={close}><X size={16}/></Button></div>{!detail ? <Empty icon={<FileText size={32}/>} title="在素材库打开任意一条" text="这里会显示完整的文稿、来源和试听。"/> : <>
     <div className="document-title"><h2>{detail.title}</h2><p>{detail.folder} · {new Date(detail.created_at * 1000).toLocaleDateString('zh-CN')}</p></div>
     {detail.metadata.cover_path && !video && <img className="inspector-cover" src={`/api/items/${detail.id}/cover`} alt="作品封面" onDoubleClick={()=>reveal(detail.id,'cover').catch(e=>notify(e.message,true))}/>}
-    {detail.media_path && <div className="media-player">{video ? <video ref={el => { player.current = el; }} controls preload="metadata" poster={detail.metadata.cover_path ? `/api/items/${detail.id}/cover` : undefined} src={`/api/items/${detail.id}/media`}/> : <audio ref={el => { player.current = el; }} controls preload="metadata" src={`/api/items/${detail.id}/media`}/>}</div>}
+    {detail.media_path && <div className="media-player">{video ? <div ref={videoFrame} className={`video-frame ${videoFullscreen && !document.fullscreenElement ? 'window-fullscreen' : ''}`}><video ref={el => { player.current = el; }} controls preload="metadata" poster={detail.metadata.cover_path ? `/api/items/${detail.id}/cover` : undefined} src={`/api/items/${detail.id}/media`}/><button className="video-fullscreen" title={videoFullscreen ? '退出全屏' : '全屏播放'} aria-label={videoFullscreen ? '退出全屏' : '全屏播放'} onClick={toggleVideoFullscreen}>{videoFullscreen ? <ArrowsInSimple size={18}/> : <ArrowsOutSimple size={18}/>}</button></div> : <audio ref={el => { player.current = el; }} controls preload="metadata" src={`/api/items/${detail.id}/media`}/>}</div>}
     <div className="document-tabs"><div className="segmented">{[['text','文稿'],['timeline','时间轴'],['info','信息']].map(([v,l]) => <button disabled={dirty && v !== tab} className={tab === v ? 'selected' : ''} key={v} onClick={() => setTab(v)}>{l}</button>)}</div><span>{(draft || '').length.toLocaleString()} 字</span></div>
     <div className="document-body">{tab === 'text' ? detail.transcript || dirty ? <textarea aria-label="文稿正文" value={draft} readOnly={!!active} onChange={e => editText(e.target.value)} spellCheck={false}/> : <Empty icon={<FileText size={26}/>} title={active ? '正在生成文稿' : '还没有文稿'} text={active ? '识别出的文字会持续出现在这里。' : '开始转录后，在这里查看和编辑全文。'}/> : tab === 'timeline' ? segments.length ? <div className="segments">{segments.map((segment, index) => <div className="segment" key={index}><button title="播放这一段" onClick={() => { if (player.current) { player.current.currentTime = segment.start; player.current.play().catch(() => {}); } }}>{duration(segment.start)}</button><textarea aria-label={`第 ${index + 1} 段字幕`} readOnly={!!active} value={segment.text} onChange={e => editSegments(segments.map((s, i) => i === index ? { ...s, text: e.target.value } : s))}/></div>)}</div> : <Empty icon={<List size={26}/>} title="没有时间戳" text="转录音视频或导入 SRT 后，可以按段编辑和定位播放。"/> : <div className="info-list"><label>标题<input defaultValue={detail.title} key={detail.id} onBlur={async e => { const title = e.target.value.trim(); if (title && title !== detail.title) { try { await api(`/items/${detail.id}`, 'PATCH', { title }); await refresh(); } catch (err) { notify((err as Error).message, true); } } }}/></label><label>文件夹<input defaultValue={detail.folder} key={detail.id + 'folder'} onBlur={async e => { if (e.target.value.trim()) { await api(`/items/${detail.id}`, 'PATCH', { folder: e.target.value.trim() }).catch(err => notify(err.message, true)); await refresh(); } }}/></label><label>来源<span>{detail.source_url || '本地导入'}</span></label><label>状态<span>{detail.phase}</span></label><label>本地文件<span>{detail.media_path || '文稿保存在本地数据库中'}</span></label>{detail.source_url && <Button onClick={() => window.desktop?.openExternal(detail.source_url)}>打开原作品<ArrowSquareOut size={15}/></Button>}<Button onClick={() => reveal(detail.id,detail.media_path?'media':'document').catch(e=>notify(e.message,true))}>在文件夹中显示<Folder size={15}/></Button><Button onClick={async () => { try { await api(`/items/${detail.id}`, 'DELETE'); await refresh(); notify('已从列表移除，文件仍保留在本地'); close(); } catch (e) { notify((e as Error).message, true); } }}><Trash size={15}/>移除这份素材</Button></div>}</div>
     <footer className="document-footer">{dirty ? <div className="save-row"><span>{tab === 'text' && detail.segments.length ? '修改全文会清除旧时间戳' : '草稿自动保留在本地'}</span><Button onClick={discard}>放弃</Button><Button primary disabled={saving} onClick={save}><FloppyDisk size={15}/>保存</Button></div> : <><div className="export-row"><Button disabled={!detail.transcript} onClick={() => navigator.clipboard.writeText(draft).then(() => notify('已复制全文')).catch(() => notify('复制失败，请手动选中复制', true))}><Copy size={15}/>复制</Button>{['txt','md','srt'].map(fmt => <a className={`button ${(!detail.transcript || (fmt === 'srt' && !detail.segments.length)) ? 'disabled' : ''}`} key={fmt} href={`/api/items/${detail.id}/export/${fmt}`} download>{fmt.toUpperCase()}<DownloadSimple size={13}/></a>)}</div><div className="export-row secondary"><Button disabled={!detail.transcript} onClick={() => navigate('process', detail.id)}><PencilSimple size={14}/>继续处理</Button><Button disabled={!detail.transcript} onClick={() => exportIntegration('feishu')}><CloudArrowUp size={14}/>存入飞书</Button><Button disabled={!detail.transcript} title="存入 Obsidian" onClick={() => exportIntegration('obsidian')}><BookOpen size={15}/></Button></div></>}</footer>
