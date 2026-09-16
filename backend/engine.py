@@ -24,6 +24,7 @@ pending = set()
 cancelled = set()
 job_lock = threading.RLock()
 worker_started = False
+thumbnail_lock = threading.Lock()
 
 
 def run_command(args, **kwargs):
@@ -155,6 +156,36 @@ def collect_preview(url, limit=20, after='', before=''):
 
 
 MEDIA_SUFFIXES = {'.mp3','.wav','.m4a','.mp4','.mov','.mkv','.webm','.ogg','.flac','.aac','.wma','.avi','.m4v'}
+VIDEO_SUFFIXES = {'.mp4','.mov','.mkv','.webm','.avi','.m4v'}
+
+
+def ensure_video_thumbnail(item):
+    """Return a local cover, extracting one video frame when the source has no cover."""
+    existing = item['metadata'].get('cover_path','')
+    if existing and Path(existing).is_file():
+        return existing
+    media = Path(item['media_path']) if item.get('media_path') else None
+    ffmpeg = shutil.which('ffmpeg')
+    if not media or media.suffix.lower() not in VIDEO_SUFFIXES or not media.is_file() or not ffmpeg:
+        return ''
+    directory = store.DATA / 'thumbnails'
+    target = directory / f"{item['id']}.jpg"
+    with thumbnail_lock:
+        if target.is_file():
+            return str(target)
+        directory.mkdir(parents=True, exist_ok=True)
+        temporary = directory / f"{item['id']}.tmp.jpg"
+        seek = min(2.0, max(0.15, float(item.get('duration') or 5) * 0.08))
+        for position in (seek, 0):
+            result = run_command([ffmpeg, '-y', '-hide_banner', '-loglevel', 'error', '-ss', str(position), '-i', str(media),
+                                  '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '3', str(temporary)], timeout=45)
+            if result.returncode == 0 and temporary.is_file() and temporary.stat().st_size:
+                temporary.replace(target)
+                metadata = item['metadata'] | {'cover_path': str(target), 'cover_generated': True}
+                store.update(item['id'], metadata=metadata)
+                return str(target)
+            temporary.unlink(missing_ok=True)
+    return ''
 
 
 def process(item_id):

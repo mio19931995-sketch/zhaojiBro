@@ -84,7 +84,7 @@ def batch(body:dict):
 @router.get('/items/{item_id}/cover')
 def cover(item_id:str):
     item=store.get(item_id)
-    path=item['metadata'].get('cover_path') if item else None
+    path=engine.ensure_video_thumbnail(item) if item else None
     if not path or not Path(path).is_file():raise HTTPException(404,'还没有本地封面')
     return FileResponse(path)
 

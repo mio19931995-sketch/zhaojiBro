@@ -36,6 +36,20 @@
   align-self: center;
 }
 
+.task-icon.thumbnail {
+  width: 64px;
+  height: 44px;
+  overflow: hidden;
+  background: #181818;
+}
+
+.task-icon.thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .task-buttons {
   display: flex;
   align-items: center;

@@ -1,6 +1,7 @@
 """Local integration tests; Feishu transports are explicit fixtures, never called live."""
 import io
 import os
+import shutil
 import tempfile
 import time
 import wave
@@ -17,6 +18,21 @@ client=TestClient(app,headers={'X-Lulu-Client':'desktop'})
 
 
 def make_item(title='测试作品',**kwargs):return store.add(title,**kwargs)
+
+
+@pytest.mark.skipif(not shutil.which('ffmpeg'), reason='ffmpeg is required for video thumbnails')
+def test_video_cover_is_generated_from_local_media():
+    directory=store.DATA/'media'/'thumbnail-test';directory.mkdir(parents=True,exist_ok=True)
+    video=directory/'source.mp4'
+    result=engine.run_command([shutil.which('ffmpeg'),'-y','-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=blue:s=160x90:d=1','-c:v','mpeg4',str(video)],timeout=30)
+    assert result.returncode==0
+    item=make_item('本地视频封面',media_path=str(video),duration=1,status='done')
+    response=client.get(f"/api/items/{item['id']}/cover")
+    assert response.status_code==200
+    assert response.headers['content-type'].startswith('image/')
+    refreshed=store.get(item['id'])
+    assert refreshed['metadata']['cover_generated'] is True
+    assert Path(refreshed['metadata']['cover_path']).is_file()
 
 
 def test_library_folder_fulltext_move_export_and_delete():
