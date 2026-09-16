@@ -1,0 +1,67 @@
+.task-batch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 11px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.task-batch label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text);
+}
+
+.task-batch > span {
+  margin-left: auto;
+}
+
+.task-batch .button {
+  min-height: 29px;
+  padding: 5px 9px;
+}
+
+.task-row.selectable {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.task-row.batch-selected {
+  border-color: var(--accent-border);
+  background: var(--selection-soft);
+}
+
+.task-select {
+  align-self: center;
+}
+
+.task-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.task-row.selectable progress,
+.task-row.selectable .inline-error {
+  grid-column: 2 / -1;
+}
+
+@media (max-width: 640px) {
+  .task-batch {
+    flex-wrap: wrap;
+  }
+
+  .task-batch > span {
+    margin-left: 0;
+  }
+
+  .task-batch .button {
+    margin-left: auto;
+  }
+
+  .task-buttons .button {
+    padding-inline: 7px;
+  }
+}

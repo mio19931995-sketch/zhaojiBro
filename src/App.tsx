@@ -97,6 +97,7 @@ function Extract(props: Shared) {
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [checked, setChecked] = useState<string[]>([]);
   const [recording, setRecording] = useState(false);
   const [recordSource,setRecordSource]=useState('microphone');
   const recordCleanup=useRef<()=>void>(()=>{});
@@ -139,6 +140,24 @@ function Extract(props: Shared) {
     } catch(e) {recordCleanup.current();notify('录音未开始：'+(e as Error).message, true);}
   }
   const items = state.items.filter(i => !['document','output','voice','clip'].includes(i.kind)).filter(i => filter === 'all' || (filter === 'active' ? i.status !== 'done' : i.status === 'done'));
+  const visibleDeletable = items.filter(i => !['processing','queued'].includes(i.status)).map(i => i.id);
+  const allVisibleChecked = visibleDeletable.length > 0 && visibleDeletable.every(id => checked.includes(id));
+  useEffect(() => { setChecked(value => value.filter(id => state.items.some(item => item.id === id))); }, [state.items]);
+  function toggleChecked(id: string) { setChecked(value => value.includes(id) ? value.filter(current => current !== id) : [...value, id]); }
+  function toggleAllVisible() { setChecked(value => allVisibleChecked ? value.filter(id => !visibleDeletable.includes(id)) : [...new Set([...value, ...visibleDeletable])]); }
+  async function removeTasks(ids: string[]) {
+    if (!ids.length) return;
+    const count = ids.length;
+    if (!window.confirm(count === 1 ? '确定从任务队列删除这条任务吗？\n原始素材文件仍会保留在本地。' : `确定批量删除选中的 ${count} 条任务吗？\n原始素材文件仍会保留在本地。`)) return;
+    try {
+      if (count === 1) await api(`/items/${ids[0]}`, 'DELETE');
+      else await api('/items/batch', 'POST', { ids, action: 'delete' });
+      if (ids.includes(props.selected)) select('');
+      setChecked(value => value.filter(id => !ids.includes(id)));
+      await refresh();
+      notify(`已删除 ${count} 条任务，原始文件仍保留在本地`);
+    } catch (e) { notify((e as Error).message, true); }
+  }
   return <>
     <section className="panel import-panel">
       <button className={`drop-zone ${drag ? 'dragging' : ''}`} disabled={busy} onClick={() => input.current?.click()} onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={e => { e.preventDefault(); setDrag(false); importFiles(e.dataTransfer.files); }}>
@@ -148,18 +167,19 @@ function Extract(props: Shared) {
       <div className="inset recording-row"><div className="section-icon"><Microphone size={21}/></div><div><h3>录一段声音</h3><p>{recording ? `正在录音 · ${duration(recordSeconds)}` : '选择声音来源，结束后自动加入转录队列'}</p></div><select aria-label="录音来源" disabled={recording} value={recordSource} onChange={e=>setRecordSource(e.target.value)}><option value="microphone">麦克风</option><option value="system">系统声音</option><option value="mix">麦克风 + 系统混录</option></select><Button primary onClick={record}>{recording ? <Stop size={16}/> : <Microphone size={16}/>} {recording ? '结束录音' : '开始录音'}</Button></div>
     </section>
     <div className="section-bar"><h2><span className="tiny-dot"/>任务队列 <small>{state.items.filter(i => ['idle','paused','queued','processing'].includes(i.status)).length} 个待处理</small></h2><div className="section-actions"><div className="segmented">{[['all','全部任务'],['active','进行中'],['done','已完成']].map(([v,t]) => <button className={filter === v ? 'selected' : ''} onClick={() => setFilter(v)} key={v}>{t}</button>)}</div><Button primary onClick={async () => { try { for(const i of state.items.filter(i=>['idle','paused','error'].includes(i.status)))await preparePlatform(i); const r = await api('/start-all', 'POST'); await refresh(); notify(`已启动 ${r.count} 个任务`); } catch (e) { notify((e as Error).message, true); } }} disabled={!state.items.some(i => ['idle','error','paused'].includes(i.status))}><Play size={15}/>全部开始</Button></div></div>
-    <section className="panel task-panel">{items.length ? items.map(item => <TaskRow item={item} key={item.id} {...props}/>) : <Empty icon={<FileAudio size={30}/>} title="从第一份素材开始" text="导入一段音视频，文稿和处理进度会显示在这里。"/>}</section>
+    <section className="panel task-panel">{items.length ? <><div className="task-batch"><label><input type="checkbox" checked={allVisibleChecked} onChange={toggleAllVisible}/><span>全选当前可删除任务</span></label><span>已选 {checked.length} 项</span><Button disabled={!checked.length} onClick={() => removeTasks(checked)}><Trash size={14}/>批量删除</Button></div>{items.map(item => <TaskRow item={item} key={item.id} checked={checked.includes(item.id)} toggleChecked={toggleChecked} remove={() => removeTasks([item.id])} {...props}/>)}</> : <Empty icon={<FileAudio size={30}/>} title="从第一份素材开始" text="导入一段音视频，文稿和处理进度会显示在这里。"/>}</section>
   </>;
 }
 
-function TaskRow({ item, select, selected, refresh, notify }: Shared & { item: Item }) {
+function TaskRow({ item, select, selected, refresh, notify, checked, toggleChecked, remove }: Shared & { item: Item; checked: boolean; toggleChecked: (id: string) => void; remove: () => void }) {
   async function action(command: string) {
     try { if(command==='start')await preparePlatform(item);await api(`/items/${item.id}/${command}`, 'POST'); await refresh(); } catch (e) { notify((e as Error).message, true); }
   }
   const active = ['processing','queued'].includes(item.status);
-  return <article className={`task-row ${selected === item.id ? 'chosen' : ''}`}>
+  return <article className={`task-row selectable ${selected === item.id ? 'chosen' : ''} ${checked ? 'batch-selected' : ''}`}>
+    <input className="task-select" type="checkbox" aria-label={`选择任务 ${item.title}`} checked={checked} disabled={active} onChange={() => toggleChecked(item.id)}/>
     <button className="task-open" onClick={() => select(item.id)}><span className={`task-icon ${active ? 'working' : ''}`}>{active ? <CircleNotch size={23}/> : item.status === 'done' ? <FileText size={23}/> : <FileAudio size={23}/>}</span><span className="task-copy"><strong>{item.title}</strong><small>{item.source_url ? '来自链接' : '本地素材'}{item.duration > 0 && ` · ${duration(item.duration)}`} · {item.phase}</small></span></button>
-    <div className="task-actions"><span className={`status-pill ${item.status}`}>{labels[item.status]}</span>{item.status === 'done' ? <Button onClick={() => select(item.id)}>查看<CaretRight size={13}/></Button> : <Button primary={!active} onClick={() => action(active ? 'pause' : 'start')}>{active ? <Pause size={14}/> : <Play size={14}/>} {active ? '暂停' : item.status === 'error' ? '重试' : '开始'}</Button>}</div>
+    <div className="task-actions"><span className={`status-pill ${item.status}`}>{labels[item.status]}</span><div className="task-buttons">{item.status === 'done' ? <Button onClick={() => select(item.id)}>查看<CaretRight size={13}/></Button> : <Button primary={!active} onClick={() => action(active ? 'pause' : 'start')}>{active ? <Pause size={14}/> : <Play size={14}/>} {active ? '暂停' : item.status === 'error' ? '重试' : '开始'}</Button>}<Button title={active ? '请先暂停任务再删除' : '删除任务'} disabled={active} onClick={remove}><Trash size={13}/>删除</Button></div></div>
     {active && <progress aria-label="任务进度" value={item.progress} max={100}/>}
     {item.error && <div className="inline-error">{item.error}</div>}
   </article>;
