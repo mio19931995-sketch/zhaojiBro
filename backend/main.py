@@ -315,6 +315,12 @@ def update_settings(body: dict):
         raise ValueError('不支持的模型')
     if 'language' in values and values['language'] not in ('auto', 'zh', 'en', 'ja', 'ko'):
         raise ValueError('不支持的语言')
+    if 'llm_url' in values or 'llm_model' in values:
+        current = store.settings()
+        url, model = integrations.normalize_llm_config(
+            values.get('llm_url', current['llm_url']),
+            values.get('llm_model', current['llm_model']))
+        values.update({'llm_url': url, 'llm_model': model})
     for raw, encoded in [('llm_api_key', 'llm_api_key_enc'), ('feishu_secret', 'feishu_secret_enc')]:
         if body.get(raw):
             values[encoded] = secrets.seal(body[raw])

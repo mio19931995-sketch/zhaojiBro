@@ -25,13 +25,68 @@ def chunks(text, maximum=5000):
         text = text[end:]
 
 
+def normalize_llm_config(url, model):
+    """Return a safe OpenAI-compatible base URL and a usable model name."""
+    base = str(url or '').strip().rstrip('/')
+    parsed = urlparse(base)
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+        raise ValueError('模型地址必须以 http:// 或 https:// 开头')
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError('模型地址只能填写 API 服务地址，不能包含账号、查询参数或页面锚点')
+
+    hostname = (parsed.hostname or '').lower()
+    # platform.deepseek.com is the account console, not an API host. People often
+    # copy the URL while creating a key, so repair it instead of saving a broken URL.
+    if hostname in ('platform.deepseek.com', 'www.platform.deepseek.com'):
+        base = 'https://api.deepseek.com'
+        hostname = 'api.deepseek.com'
+    elif hostname == 'api.deepseek.com':
+        path = parsed.path.rstrip('/')
+        if path.endswith('/chat/completions'):
+            path = path[:-len('/chat/completions')]
+        # DeepSeek documents both the root base and the compatible /v1 base.
+        base = 'https://api.deepseek.com' + (path if path == '/v1' else '')
+
+    normalized_model = str(model or '').strip()
+    if hostname == 'api.deepseek.com' and normalized_model.lower() == 'deepseek':
+        normalized_model = 'deepseek-flash'
+    return base, normalized_model
+
+
+def llm_chat_endpoint(base):
+    value = base.rstrip('/')
+    if value.lower().endswith('/chat/completions'):
+        return value
+    return value + '/chat/completions'
+
+
+def raise_llm_error(response):
+    status = response.status_code
+    if status in (401, 403):
+        raise ValueError('文本模型认证失败，请检查 API Key 是否正确且仍然有效')
+    if status in (404, 405):
+        raise ValueError('文本模型接口地址不正确，请填写 API 服务地址，不要填写密钥管理网页')
+    if status == 429:
+        raise ValueError('文本模型请求过于频繁或账户额度不足，请稍后重试并检查服务额度')
+    detail = ''
+    try:
+        payload = response.json()
+        error = payload.get('error', {}) if isinstance(payload, dict) else {}
+        detail = error.get('message', '') if isinstance(error, dict) else ''
+        if not detail and isinstance(payload, dict):
+            detail = payload.get('message', '')
+    except Exception:
+        pass
+    suffix = ('：' + str(detail)[:300]) if detail else ''
+    raise ValueError(f'文本模型请求失败（HTTP {status}）{suffix}')
+
+
 def process_text(text, action, instruction=''):
     cfg = store.settings()
     if not cfg['llm_model']:
         raise ValueError('请先在 AI 大模型中配置文本模型名称和服务地址')
-    base = cfg['llm_url'].rstrip('/')
-    if urlparse(base).scheme not in ('http', 'https'):
-        raise ValueError('模型地址必须以 http:// 或 https:// 开头')
+    base, model = normalize_llm_config(cfg['llm_url'], cfg['llm_model'])
+    endpoint = llm_chat_endpoint(base)
     headers = {}
     key = secrets.unseal(cfg.get('llm_api_key_enc', ''))
     if key:
@@ -42,10 +97,11 @@ def process_text(text, action, instruction=''):
         prompt += '\n用户补充要求：' + instruction.strip()
     with httpx.Client(timeout=300, trust_env=False) as client:
         for part in chunks(text):
-            response = client.post(base + '/chat/completions', headers=headers,
-                json={'model': cfg['llm_model'], 'messages': [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': part}],
+            response = client.post(endpoint, headers=headers,
+                json={'model': model, 'messages': [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': part}],
                       'temperature': .3, 'max_tokens': 8192})
-            response.raise_for_status()
+            if response.is_error:
+                raise_llm_error(response)
             result = response.json()['choices'][0]
             if result.get('finish_reason') == 'length':
                 raise ValueError('模型输出达到长度限制，原文已保留；请缩短输入或换用更长上下文的模型')

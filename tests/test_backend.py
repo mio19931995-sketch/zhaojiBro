@@ -6,7 +6,7 @@ import wave
 os.environ['LULU_DATA_DIR'] = tempfile.mkdtemp(prefix='lulu-test-')
 from fastapi.testclient import TestClient
 from backend.main import app
-from backend import store, engine
+from backend import store, engine, integrations
 
 client = TestClient(app, headers={'X-Lulu-Client': 'desktop'})
 
@@ -75,6 +75,24 @@ def test_secret_is_encrypted_and_not_returned():
     assert 'test-secret-never-plaintext' not in response.text
     assert '_enc' not in response.text
     assert 'test-secret-never-plaintext' not in str(store.settings())
+
+
+def test_deepseek_console_url_and_legacy_model_are_repaired():
+    response = client.patch('/api/settings', json={
+        'llm_url': 'https://platform.deepseek.com/api_keys',
+        'llm_model': 'deepseek',
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()['llm_url'] == 'https://api.deepseek.com'
+    assert response.json()['llm_model'] == 'deepseek-flash'
+    assert integrations.llm_chat_endpoint(response.json()['llm_url']) == 'https://api.deepseek.com/chat/completions'
+
+
+def test_chat_endpoint_is_not_appended_twice():
+    base, model = integrations.normalize_llm_config(
+        'https://example.test/v1/chat/completions', 'custom-model')
+    assert model == 'custom-model'
+    assert integrations.llm_chat_endpoint(base) == 'https://example.test/v1/chat/completions'
 
 
 def test_restart_keeps_documents_and_pauses_interrupted_jobs():
