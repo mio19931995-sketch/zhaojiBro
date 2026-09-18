@@ -24,8 +24,12 @@ def test_import_edit_and_export_timestamped_transcript():
     assert '00:00:01,200 --> 00:00:03,400' in subtitle
     assert '编辑后的第一句话。' in subtitle
     assert '第二句话。' in client.get(f'/api/items/{item["id"]}').json()['transcript']
-    # Plain text edits must not export obsolete timed subtitles.
+    # Changing the line count must not silently remove timed subtitles.
     result = client.patch('/api/items/' + item['id'], json={'transcript': '改写后的全文'})
+    assert result.status_code == 400
+    assert len(client.get(f'/api/items/{item["id"]}').json()['segments']) == 2
+    # Explicit conversion to plain text remains available to intentional callers.
+    result = client.patch('/api/items/' + item['id'], json={'transcript': '改写后的全文', 'clear_timestamps': True})
     assert result.json()['segments'] == []
     assert client.get(f'/api/items/{item["id"]}/export/srt').status_code == 400
     assert client.get(f'/api/items/{item["id"]}/export/txt').content.decode('utf-8-sig') == '改写后的全文'

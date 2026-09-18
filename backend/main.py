@@ -94,6 +94,33 @@ def get_item(item_id: str):
     return require(item_id)
 
 
+@app.get('/api/items/{item_id}/versions')
+def item_versions(item_id: str):
+    require(item_id)
+    return store.versions(item_id)
+
+
+@app.get('/api/items/{item_id}/versions/{version_id}')
+def item_version(item_id: str, version_id: str):
+    require(item_id)
+    saved = store.version(item_id, version_id)
+    if not saved:
+        raise HTTPException(404, '找不到这份历史文稿')
+    return saved
+
+
+@app.post('/api/items/{item_id}/versions/{version_id}/restore')
+def restore_item_version(item_id: str, version_id: str):
+    with engine.job_lock:
+        item = require(item_id)
+        if item_id in engine.pending or item['status'] in ('processing', 'queued'):
+            raise ValueError('请先暂停任务，待处理停止后再恢复历史文稿')
+        restored = store.restore_version(item_id, version_id)
+        if not restored:
+            raise HTTPException(404, '找不到这份历史文稿')
+        return restored
+
+
 @app.get('/api/drafts/{key}')
 def read_draft(key: str):
     with store.connection() as con:
@@ -207,16 +234,18 @@ def pause(item_id: str):
 
 @app.post('/api/items/{item_id}/retranscribe')
 def retranscribe(item_id: str):
-    item = require(item_id)
-    if item_id in engine.pending:
-        raise ValueError('当前任务仍在处理中')
-    if not item['media_path'] and not item['source_url']:
-        raise ValueError('没有可重新转录的音视频素材')
-    metadata = dict(item['metadata'])
-    metadata.pop('detected_language', None)
-    metadata.pop('transcript_source', None)
-    store.update(item_id, transcript='', segments=[], status='idle', progress=0, phase='等待重新转录', error='', metadata=metadata)
-    engine.enqueue(item_id)
+    with engine.job_lock:
+        item = require(item_id)
+        if item_id in engine.pending:
+            raise ValueError('当前任务仍在处理中')
+        if not item['media_path'] and not item['source_url']:
+            raise ValueError('没有可重新转录的音视频素材')
+        metadata = dict(item['metadata'])
+        metadata.pop('detected_language', None)
+        metadata.pop('transcript_source', None)
+        store.update_with_snapshot(item_id, '重新转录前', transcript='', segments=[], status='idle', progress=0,
+                                   phase='等待重新转录', error='', metadata=metadata)
+        engine.enqueue(item_id)
     return {'ok': True}
 
 
@@ -235,25 +264,35 @@ class EditInput(BaseModel):
     transcript: str | None = None
     segments: list[dict] | None = None
     folder: str | None = Field(default=None, min_length=1, max_length=200)
+    clear_timestamps: bool = False
 
 
 @app.patch('/api/items/{item_id}')
 def edit(item_id: str, body: EditInput):
-    item = require(item_id)
-    if item_id in engine.pending:
-        raise ValueError('请等待当前任务结束后编辑')
-    values = body.model_dump(exclude_none=True)
-    if body.segments is not None:
-        for s in body.segments:
-            if not isinstance(s.get('text'), str) or not isinstance(s.get('start'), (int, float)) or not isinstance(s.get('end'), (int, float)) or s['start'] < 0 or s['end'] < s['start']:
-                raise ValueError('无效的字幕时间戳')
-        values['segments'] = [{**segment, 'text': engine.to_simplified(segment['text'])} for segment in body.segments]
-        values['transcript'] = '\n'.join(segment['text'] for segment in values['segments'])
-    elif body.transcript is not None and body.transcript != item['transcript']:
-        values['transcript'] = engine.to_simplified(body.transcript)
-        values['segments'] = []  # Plain text edits cannot silently leave an obsolete SRT.
-    store.update(item_id, **values)
-    return require(item_id)
+    with engine.job_lock:
+        item = require(item_id)
+        if item_id in engine.pending:
+            raise ValueError('请等待当前任务结束后编辑')
+        values = body.model_dump(exclude_none=True, exclude={'clear_timestamps'})
+        if body.segments is not None:
+            for s in body.segments:
+                if not isinstance(s.get('text'), str) or not isinstance(s.get('start'), (int, float)) or not isinstance(s.get('end'), (int, float)) or s['start'] < 0 or s['end'] < s['start']:
+                    raise ValueError('无效的字幕时间戳')
+            values['segments'] = [{**segment, 'text': engine.to_simplified(segment['text'])} for segment in body.segments]
+            values['transcript'] = '\n'.join(segment['text'] for segment in values['segments'])
+        elif body.transcript is not None:
+            text = engine.to_simplified(body.transcript)
+            values['transcript'] = text
+            if body.clear_timestamps:
+                values['segments'] = []
+            elif item['segments'] and text != item['transcript']:
+                lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+                if len(lines) != len(item['segments']):
+                    raise ValueError('全文段数与字幕不一致。请保留每行一句，或到时间轴逐句校对；大幅改写请另存口播稿，以保留原字幕时间。')
+                values['segments'] = [{**segment, 'text': line} for segment, line in zip(item['segments'], lines)]
+                values['transcript'] = '\n'.join(lines)
+        store.update_with_snapshot(item_id, '编辑文稿前', **values)
+        return require(item_id)
 
 
 class DocumentInput(BaseModel):
@@ -278,8 +317,28 @@ def delete(item_id: str):
 
 @app.post('/api/items/{item_id}/restore')
 def restore(item_id: str):
-    store.update(item_id, deleted=0)
-    return require(item_id)
+    with engine.job_lock:
+        if item_id in engine.pending:
+            raise ValueError('请等待当前任务停止后再恢复')
+        store.restore_items([item_id])
+        return require(item_id)
+
+
+@app.get('/api/trash')
+def trash_items():
+    return store.trash()
+
+
+class RestoreItemsInput(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=1000)
+
+
+@app.post('/api/trash/restore')
+def restore_trash(body: RestoreItemsInput):
+    with engine.job_lock:
+        if any(item_id in engine.pending for item_id in body.ids):
+            raise ValueError('请等待所选任务停止后再恢复')
+        return {'count': store.restore_items(body.ids)}
 
 
 @app.get('/api/items/{item_id}/export/{fmt}')
@@ -398,10 +457,13 @@ class VoiceInput(BaseModel):
     voice: str = Field(default='', max_length=500)
     rate: int = Field(default=0, ge=-10, le=10)
     title: str = '新配音'
+    source_id: str = ''
 
 
 @app.post('/api/voice')
 def voice(body: VoiceInput):
+    if body.source_id:
+        require(body.source_id)
     text = engine.to_simplified(body.text)
     output_id = uuid.uuid4().hex
     path = store.DATA / 'outputs' / f'{output_id}.wav'
@@ -412,7 +474,8 @@ def voice(body: VoiceInput):
         if result.returncode or not path.is_file():
             raise ValueError('Windows 配音失败，请检查语音包是否可用')
         return store.add(body.title, kind='voice', media_path=str(path), transcript=text,
-                         duration=engine.media_info(path), status='done', progress=100, phase='配音已生成')
+                         duration=engine.media_info(path), status='done', progress=100, phase='配音已生成',
+                         metadata={'source_id': body.source_id, 'voice': body.voice, 'rate': body.rate})
     finally:
         request_file.unlink(missing_ok=True)
 

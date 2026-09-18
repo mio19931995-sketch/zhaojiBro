@@ -36,6 +36,12 @@ def init():
         con.execute('CREATE TABLE IF NOT EXISTS drafts (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
         con.execute('CREATE TABLE IF NOT EXISTS folders (name TEXT PRIMARY KEY)')
         con.execute('CREATE TABLE IF NOT EXISTS objects (kind TEXT, id TEXT, value TEXT NOT NULL, PRIMARY KEY(kind,id))')
+        con.execute('''CREATE TABLE IF NOT EXISTS snapshots (
+          id TEXT PRIMARY KEY, item_id TEXT NOT NULL, created_at REAL NOT NULL,
+          reason TEXT NOT NULL, title TEXT NOT NULL, transcript TEXT NOT NULL,
+          segments TEXT NOT NULL, characters INTEGER NOT NULL, segment_count INTEGER NOT NULL
+        )''')
+        con.execute('CREATE INDEX IF NOT EXISTS snapshots_item_created ON snapshots(item_id,created_at DESC)')
         # A stopped job is explicitly resumable; never pretend a partial transcript completed.
         con.execute("UPDATE items SET status='paused', phase='上次处理已中断，可以继续', progress=0 WHERE status IN ('queued','processing')")
 
@@ -71,17 +77,101 @@ def add(title, **fields):
 ALLOWED = {'title','kind','source_url','media_path','duration','status','progress','phase','error','transcript','segments','folder','metadata','deleted'}
 
 
-def update(item_id, **fields):
+def _update(con, item_id, fields):
     if not fields:
         return
     if not set(fields).issubset(ALLOWED):
         raise ValueError('Invalid field')
+    fields = dict(fields)
     for key in ('segments', 'metadata'):
         if key in fields:
             fields[key] = json.dumps(fields[key], ensure_ascii=False)
     fields['updated_at'] = time.time()
+    con.execute(f"UPDATE items SET {','.join(k+'=?' for k in fields)} WHERE id=?", (*fields.values(), item_id))
+
+
+def update(item_id, **fields):
     with connection() as con:
-        con.execute(f"UPDATE items SET {','.join(k+'=?' for k in fields)} WHERE id=?", (*fields.values(), item_id))
+        _update(con, item_id, fields)
+
+
+def _snapshot(con, item, reason, include_empty=False):
+    if not include_empty and not item['transcript'] and not item['segments']:
+        return
+    con.execute('INSERT INTO snapshots VALUES (?,?,?,?,?,?,?,?,?)', (
+        uuid.uuid4().hex, item['id'], time.time(), reason, item['title'], item['transcript'],
+        json.dumps(item['segments'], ensure_ascii=False), len(item['transcript']), len(item['segments'])))
+
+
+def update_with_snapshot(item_id, reason, **fields):
+    """Keep the previous content and its replacement in the same transaction."""
+    with connection() as con:
+        con.execute('BEGIN IMMEDIATE')
+        item = decode(con.execute('SELECT * FROM items WHERE id=? AND deleted=0', (item_id,)).fetchone())
+        if not item:
+            raise ValueError('找不到这份素材')
+        if any(key in fields and fields[key] != item[key] for key in ('title', 'transcript', 'segments')):
+            _snapshot(con, item, reason)
+        _update(con, item_id, fields)
+
+
+def versions(item_id):
+    with connection() as con:
+        return [dict(row) for row in con.execute(
+            'SELECT id,created_at,reason,title,characters,segment_count FROM snapshots WHERE item_id=? ORDER BY created_at DESC,rowid DESC',
+            (item_id,))]
+
+
+def version(item_id, version_id):
+    with connection() as con:
+        row = con.execute('SELECT * FROM snapshots WHERE item_id=? AND id=?', (item_id, version_id)).fetchone()
+    if not row:
+        return None
+    result = dict(row)
+    result['segments'] = json.loads(result['segments'])
+    return result
+
+
+def restore_version(item_id, version_id):
+    with connection() as con:
+        con.execute('BEGIN IMMEDIATE')
+        item = decode(con.execute('SELECT * FROM items WHERE id=? AND deleted=0', (item_id,)).fetchone())
+        saved = con.execute('SELECT * FROM snapshots WHERE item_id=? AND id=?', (item_id, version_id)).fetchone()
+        if not item or not saved:
+            return None
+        _snapshot(con, item, '恢复历史版本前', include_empty=True)
+        segments = json.loads(saved['segments'])
+        has_content = bool(saved['transcript'] or segments)
+        empty_phase = '已恢复空文稿，可重新转录' if item['media_path'] or item['source_url'] else '已恢复空文稿'
+        _update(con, item_id, {'title': saved['title'], 'transcript': saved['transcript'],
+                             'segments': segments, 'status': 'done' if has_content else 'paused',
+                             'progress': 100 if has_content else 0,
+                             'phase': '已恢复历史文稿' if has_content else empty_phase, 'error': ''})
+        con.execute('DELETE FROM drafts WHERE key=?', (item_id,))
+        return decode(con.execute('SELECT * FROM items WHERE id=?', (item_id,)).fetchone())
+
+
+def trash():
+    with connection() as con:
+        rows = con.execute('''SELECT id,title,kind,source_url,media_path,duration,status,folder,
+          created_at,updated_at,updated_at AS deleted_at,length(transcript) AS characters,
+          length(transcript)>0 AS has_transcript FROM items WHERE deleted=1 ORDER BY updated_at DESC''')
+        return [dict(row) | {'has_transcript': bool(row['has_transcript'])} for row in rows]
+
+
+def restore_items(item_ids):
+    ids = list(dict.fromkeys(item_ids))
+    with connection() as con:
+        con.execute('BEGIN IMMEDIATE')
+        items = [decode(con.execute('SELECT * FROM items WHERE id=?', (item_id,)).fetchone()) for item_id in ids]
+        if any(not item or not item['deleted'] for item in items):
+            raise ValueError('所选条目不在回收站，请刷新后重试')
+        for item in items:
+            fields = {'deleted': 0}
+            if item['status'] in ('processing', 'queued'):
+                fields.update(status='paused', progress=0, phase='已恢复，点击开始可重新处理')
+            _update(con, item['id'], fields)
+    return len(ids)
 
 
 DEFAULTS = {'model': 'base', 'language': 'auto', 'llm_url': 'http://127.0.0.1:11434/v1', 'llm_model': '',

@@ -40,6 +40,7 @@ cookies*.txt
 
 # Keep the reproducible offline suite in the public repository
 /tests/*.mjs
+!/tests/creator-workflow.mjs
 /tests/smoke_live.py
 /tests/probe-subtitles.py
 
