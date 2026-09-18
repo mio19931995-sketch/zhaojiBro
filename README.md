@@ -43,7 +43,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 - TXT、Markdown、SRT、CSV、ZIP 导出与 Obsidian Markdown 导出。
 - 抖音独立登录窗口与主页作品采集；其他公开链接通过 yt-dlp 处理。
 - 独立下载封面、音视频，优先使用可获取的字幕，选择保留目录和定位本地文件。
-- 接入 OpenAI Chat Completions 兼容文本服务，进行摘要、校正、改写、大纲和翻译。
+- 接入 Agnes AI、DeepSeek 等 OpenAI Chat Completions 兼容文本服务，进行摘要、校正、改写、大纲和翻译；提供快捷配置与独立连接测试。
 - 使用 Windows 系统语音生成 WAV 配音；每份来源文稿分别保存配音正文、音色和语速，生成结果记录来源及制作参数。
 - 按起止时间截取本地音视频，配音与视频素材可直接定位到媒体文件。
 - 飞书 OAuth、知识库位置预设、新建或已有多维表格、字段及附件导出和失败重试。
@@ -58,11 +58,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 3. **保存字幕或口播稿**：在“时间轴”逐句修改，或通过“编辑全文”按原顺序保留一行一句后保存，可保留原时间戳。增删句子导致行数改变时，直接保存会被阻止；点击“另存口播稿”生成独立文稿，原字幕不变。此功能不重新分析语音或自动重新对齐大幅改写的文字。
 4. **恢复内容**：右侧“历史版本”可预览并恢复编辑或重转前的文稿；恢复前的当前版本也会保留。移除的素材可在左侧“回收站”恢复。任务正在处理时，需先暂停并等待停止，再恢复历史版本。
 5. **整理与导出**：在文稿库按文件夹、多选或搜索整理，再导出文件或存入 Obsidian。批量操作只针对当前可见的选中项；折叠组内的隐藏项不会被一并操作，切换搜索条件或文件夹会清空选择。
-6. **文本模型**：在“AI 大模型 → 文本处理模型”填写实际可用的 API 地址、模型名称和必要的 API Key。例如本地服务可填 `http://127.0.0.1:11434/v1`，DeepSeek 可填 `https://api.deepseek.com`。程序会补齐 `/chat/completions`，已填写完整接口时不会重复追加；误填的 DeepSeek 密钥管理页面地址会被修正。保存配置不代表服务已经连通，可先用一小段非敏感正文验证。本项目不附送模型服务或 API 额度。
+6. **文本模型**：在“AI 大模型 → 文本处理模型”选择 Agnes AI、DeepSeek 或自定义兼容服务，填写对应 API Key，再点击“测试连接”和“保存配置”。测试会向当前表单指定的服务发送固定短句，不保存设置或读取文稿；保存配置本身不代表连通。各服务的密钥按 API 地址分别加密保存，切换服务不会把上一家的密钥发送给另一家。本项目不附送模型服务或 API 额度。
 7. **配音**：选择已保存文稿或手动输入正文，再选系统声音和语速。页面会分别保存各来源的配音草稿，等待“草稿已保存”后即可切页或重启；生成后在音频库播放 WAV。音色取决于 Windows 已安装的语音包，尚无生成前短句试听按钮。
 8. **飞书**：填写自己的应用信息，按页面配置权限和三个回调地址，再登录授权并设置导出位置。真实写入需要对应账号有访问权限。
 
 链接采集取决于平台的正常登录状态、网络和内容权限。请在程序自己的窗口中完成平台要求的登录或验证。转录结果中的同音字、人名和专有名词仍需校对。
+
+### 使用 Agnes AI
+
+1. 在 [Agnes 密钥管理页面](https://platform.agnes-ai.com/settings/apiKeys) 创建自己的 API Key。
+2. 打开 Lulu 的“AI 大模型 → 文本处理模型”，服务商选择 **Agnes AI**。
+3. 程序自动填写 `https://apihub.agnes-ai.com/v1` 和 `agnes-3.0-flash`；也可以选择 `agnes-2.5-flash` 或填写账号可用的模型名称。
+4. 将密钥粘贴到密码输入框，点击“测试连接”。通过后保存配置，即可用于文案摘要、校正、改写、大纲和翻译。
+
+接入方式依据 [Agnes 3.0 官方文档](https://agnes-ai.com/en/docs/agnes-30-flash)。密钥管理网页不是推理接口；程序会修正误填的 Agnes 控制台地址。测试连接需要有效密钥和对应模型权限，可能计入服务额度；模型列表可访问不等于密钥已验证。此处接入的是文本处理，未接入 Agnes 的图片或视频生成功能。
 
 ## 数据存储与备份
 
@@ -100,10 +109,12 @@ npm.cmd run dev
 可重复的后端回归测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_parity.py tests/test_acceptance.py tests/test_creator_safety.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_parity.py tests/test_acceptance.py tests/test_creator_safety.py tests/test_llm_providers.py -q
 ```
 
 `tests/test_creator_safety.py` 覆盖字幕时间戳保护、历史版本、恢复与回收站，以及配音来源和制作参数等内容保护行为。这些测试使用独立临时资料库，云端交互使用测试响应，不能代表真实账号写入或每个平台都已验证。
+
+`tests/test_llm_providers.py` 使用模拟 HTTP 响应验证 Agnes 地址规范化、服务密钥隔离和连接测试；不使用个人 API Key，不代表账号认证或服务额度已经验收。
 
 可重复的创作者工作流界面验证：
 

@@ -12,6 +12,8 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -53,6 +55,13 @@ async def bad_value(request, exc):
     return JSONResponse({'detail': str(exc)}, 400)
 
 
+@app.exception_handler(RequestValidationError)
+async def invalid_input(request, exc):
+    if request.url.path == '/api/llm/test':
+        return JSONResponse({'detail': '模型测试参数格式不正确，请检查服务地址、模型名称和 API Key'}, 422)
+    return await request_validation_exception_handler(request, exc)
+
+
 def require(item_id):
     item = store.get(item_id)
     if not item:
@@ -63,7 +72,7 @@ def require(item_id):
 def public_settings():
     cfg = store.settings()
     return {k: v for k, v in cfg.items() if not k.endswith('_enc')} | {
-        'has_llm_key': bool(cfg.get('llm_api_key_enc')), 'has_feishu_secret': bool(cfg.get('feishu_secret_enc'))}
+        'has_feishu_secret': bool(cfg.get('feishu_secret_enc'))} | integrations.llm_key_flags(cfg)
 
 
 @app.get('/api/health')
@@ -365,6 +374,11 @@ def export_csv():
 
 @app.patch('/api/settings')
 def update_settings(body: dict):
+    with integrations.llm_settings_lock:
+        return save_settings_input(body)
+
+
+def save_settings_input(body):
     allowed = set(store.DEFAULTS)
     values = {k: v for k, v in body.items() if k in allowed and isinstance(v, str)}
     if 'save_directory' in values and values['save_directory'] and not Path(values['save_directory']).is_dir():
@@ -374,19 +388,31 @@ def update_settings(body: dict):
         raise ValueError('不支持的模型')
     if 'language' in values and values['language'] not in ('auto', 'zh', 'en', 'ja', 'ko'):
         raise ValueError('不支持的语言')
-    if 'llm_url' in values or 'llm_model' in values:
+    if 'llm_url' in values or 'llm_model' in values or 'llm_api_key' in body:
         current = store.settings()
         url, model = integrations.normalize_llm_config(
             values.get('llm_url', current['llm_url']),
             values.get('llm_model', current['llm_model']))
         values.update({'llm_url': url, 'llm_model': model})
-    for raw, encoded in [('llm_api_key', 'llm_api_key_enc'), ('feishu_secret', 'feishu_secret_enc')]:
+        values.update(integrations.llm_key_settings(current, url, body.get('llm_api_key', '')))
+    for raw, encoded in [('feishu_secret', 'feishu_secret_enc')]:
         if body.get(raw):
             values[encoded] = secrets.seal(body[raw])
     if body.get('feishu_secret') or ('feishu_app_id' in values and values['feishu_app_id'] != store.settings()['feishu_app_id']):
         values.update({k:'' for k in ('feishu_user_token_enc','feishu_refresh_token_enc','feishu_user_name')})
     store.save_settings(values)
     return public_settings()
+
+
+class LLMTestInput(BaseModel):
+    llm_url: str = Field(min_length=1, max_length=2000)
+    llm_model: str = Field(default='', max_length=200)
+    llm_api_key: str = Field(default='', max_length=8192)
+
+
+@app.post('/api/llm/test')
+async def test_llm(body: LLMTestInput):
+    return await integrations.test_llm_connection(body.llm_url, body.llm_model, body.llm_api_key)
 
 
 @app.post('/api/cookies')
