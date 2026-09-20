@@ -150,7 +150,7 @@ def test_actual_processing_input_is_snapshotted(monkeypatch):
     assert any(i['dimension'] == 'fidelity' for i in report['issues'])
 
 
-def test_explicit_original_snapshot_and_limits(monkeypatch):
+def test_explicit_original_snapshot_and_long_document(monkeypatch):
     calls = mock_models(monkeypatch)
     item = document()
     source = store.add('对照原稿', transcript='对照资料', status='done')
@@ -160,4 +160,74 @@ def test_explicit_original_snapshot_and_limits(monkeypatch):
     before = len(calls)
     store.update(item['id'], transcript='中' * 8000)
     response = client.post(f"/api/items/{item['id']}/review", json={})
-    assert response.status_code == 400 and len(calls) == before
+    assert response.status_code == 200 and len(calls) > before
+    sent = [p for _, p in calls[before:]]
+    assert ''.join(part['text'] for p in sent for part in p['state']['paragraphs']) == '中' * 8000
+    assert all(len(json.dumps(p, ensure_ascii=False).encode()) < 32000 for p in sent)
+
+
+def test_more_than_80_paragraphs_are_all_checked(monkeypatch):
+    calls = mock_models(monkeypatch, choice='ok')
+    text = '\n'.join(f'第{i}行。' for i in range(101))
+    item = store.add('长文稿', transcript=text, status='done')
+    report = check(item)
+    assert report['checked_paragraphs'] == 101 and not report['issues']
+    observed = [part for _, p in calls for part in p['state']['paragraphs']]
+    assert len(observed) == 101
+    assert all(text[p['start']:p['end']] == p['text'] for p in observed)
+    progress = client.get(f"/api/items/{item['id']}/review/progress").json()
+    assert progress['status'] == 'done' and progress['completed'] == progress['total'] == 26
+
+
+def test_original_tail_is_checked_and_unsupported_is_aggregated(monkeypatch):
+    item = document()
+    original = '资料' * 2500 + '末尾依据'
+    store.object_put('text_origin', item['id'], {'text': original})
+    seen = []
+    def evaluate(state, questions):
+        seen.append(state['original'])
+        return {'model': 'test', 'answers': {name: {'choice': ('ok' if state['original'].endswith('末尾依据') else 'unsupported') if name.endswith('fidelity') else 'ok', 'confidence': .95} for name in questions}}
+    monkeypatch.setattr(review, 'evaluate', evaluate)
+    report = check(item)
+    assert ''.join(seen) == original
+    assert not report['issues']
+    assert report['source_chunks'] == 3
+
+
+def test_conflicting_source_evidence_requires_manual_review():
+    assert review.merge_fidelity([{'choice': 'ok', 'confidence': .95}, {'choice': 'problem', 'confidence': .95}])['choice'] == 'uncertain'
+    assert review.merge_fidelity([{'choice': 'unsupported', 'confidence': .95}, {'choice': 'uncertain', 'confidence': .3}])['choice'] == 'uncertain'
+
+
+def test_split_caption_correction_preserves_surrounding_text(monkeypatch):
+    mock_models(monkeypatch)
+    text = '甲' * 1300
+    item = store.add('超长字幕', transcript=text, status='done', segments=[{'start': 0, 'end': 20, 'text': text}])
+    report = check(item)
+    issue = report['issues'][0]
+    assert issue['end'] == 600
+    assert action(item, report, 'suggest').status_code == 200
+    assert action(item, report, 'apply').status_code == 200
+    result = store.get(item['id'])
+    assert result['transcript'] == '修正后的句子。' + '甲' * 700
+    assert result['segments'][0] == {'start': 0, 'end': 20, 'text': result['transcript']}
+
+
+def test_failed_batch_preserves_last_complete_report(monkeypatch):
+    mock_models(monkeypatch)
+    item = document()
+    old = check(item)
+    store.update(item['id'], transcript='甲' * 9000)
+    count = 0
+    def fail(state, questions):
+        nonlocal count
+        count += 1
+        if count == 2:
+            raise ValueError('模拟超时')
+        return {'model': 'test', 'answers': {name: {'choice': 'ok', 'confidence': .95} for name in questions}}
+    monkeypatch.setattr(review, 'evaluate', fail)
+    response = client.post(f"/api/items/{item['id']}/review", json={})
+    assert response.status_code == 400
+    assert store.object_get('review', item['id'])['id'] == old['id']
+    assert store.object_get('review_progress', item['id'])['status'] == 'error'
+    assert item['id'] not in review.running

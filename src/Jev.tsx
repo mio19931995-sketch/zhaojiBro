@@ -30,7 +30,7 @@ export function JevSettings({ settings, refresh, notify }: { settings: Settings;
 }
 
 export type ReviewIssue = { id: string; start: number; end: number; text: string; label: string; uncertain: boolean; suggestion?: string };
-type Report = { id: string; fingerprint: string; created_at: number; model: string; issues: ReviewIssue[]; original: string; original_title: string; text: string; checked_paragraphs: number; stale: boolean };
+type Report = { id: string; fingerprint: string; created_at: number; model: string; issues: ReviewIssue[]; original: string; original_title: string; text: string; checked_paragraphs: number; coverage?: string; stale: boolean };
 export function DocumentReview({ item, items, settings, notify, updated, locate, configure }: {
   item: Item; items: Item[]; settings: Settings; notify: Notify; updated: () => Promise<void>;
   locate: (issue: ReviewIssue) => void; configure: () => void;
@@ -40,6 +40,26 @@ export function DocumentReview({ item, items, settings, notify, updated, locate,
   const [source, setSource] = useState('');
   const [busy, setBusy] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [progress, setProgress] = useState({ status: 'idle', completed: 0, total: 0 });
+  const checking = busy === 'check' || progress.status === 'running';
+  useEffect(() => {
+    let cancelled = false, lastStatus = '', timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        const value = await api(`/items/${item.id}/review/progress`);
+        if (cancelled) return;
+        setProgress(value);
+        if (lastStatus === 'running' && value.status === 'done') {
+          const result = await api(`/items/${item.id}/review`);
+          if (!cancelled) setReport(result.report);
+        }
+        lastStatus = value.status;
+      } catch { /* The action request reports errors; polling is best effort. */ }
+      if (!cancelled) timer = setTimeout(poll, 1500);
+    }
+    poll();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [item.id]);
   useEffect(() => {
     let cancelled = false;
     setLoaded(false);
@@ -47,9 +67,9 @@ export function DocumentReview({ item, items, settings, notify, updated, locate,
     return () => { cancelled = true; };
   }, [item.id, item.updated_at, notify]);
   async function check() {
-    setBusy('check');
+    setBusy('check'); setProgress({ status: 'running', completed: 0, total: 0 });
     try { setReport(await api(`/items/${item.id}/review`, 'POST', { source_id: source })); }
-    catch (e) { notify((e as Error).message, true); } finally { setBusy(''); }
+    catch (e) { notify((e as Error).message, true); } finally { setBusy(''); setProgress(p => ({ ...p, status: 'idle' })); }
   }
   async function act(issue: ReviewIssue, apply: boolean) {
     if (!report) return;
@@ -64,14 +84,16 @@ export function DocumentReview({ item, items, settings, notify, updated, locate,
     <h3>创作检查</h3>
     <p className="muted">检查表达与原稿一致性，结果供你核对。音画同步、外部事实真伪不在本次检查范围内。</p>
     {!settings.has_jev_key && <div className="review-notice">先配置 Jev 的独立 API Key。<Button onClick={configure}>配置检查模型</Button></div>}
-    <label>对照原稿<select aria-label="检查对照原稿" value={source} disabled={!!busy} onChange={e => setSource(e.target.value)}>
+    <label>对照原稿<select aria-label="检查对照原稿" value={source} disabled={!!busy || checking} onChange={e => setSource(e.target.value)}>
       <option value="">{hasOriginal ? '使用处理时保存的原文' : '暂无原稿，仅检查表达'}</option>
       {items.filter(i => i.id !== item.id && i.has_transcript).map(i => <option value={i.id} key={i.id}>{i.title}</option>)}
     </select></label>
     <p className="muted">点击后将这份正文和对照原稿发送至 TypeSafe。</p>
-    <Button primary disabled={!!busy || !loaded || !settings.has_jev_key || !item.transcript.trim()} onClick={check}>{busy === 'check' ? '正在逐段检查…' : report ? '重新检查' : '一键检查'}</Button>
+    <Button primary disabled={!!busy || checking || !loaded || !settings.has_jev_key || !item.transcript.trim()} onClick={check}>{checking ? '正在逐段检查…' : report ? '重新检查' : '一键检查'}</Button>
+    {checking && <div role="status" className="review-notice"><p>{progress.total ? `已完成 ${progress.completed} / ${progress.total} 批次` : '正在准备分段…'}，长文稿无需手动拆分。</p>{progress.total > 0 && <progress aria-label="文稿检查进度" max={progress.total} value={progress.completed}/>}</div>}
+    {['error', 'interrupted'].includes(progress.status) && !checking && <p className="review-notice">上次检查未完成，未生成新的完整结论，请重试。</p>}
     {report && <>
-      <div className="review-summary" role="status"><strong>{report.stale ? '文稿已修改，检查结果已过期' : report.issues.length ? `${report.issues.length} 项需要核对` : '本次未发现明确问题'}</strong><p>已检查 {report.checked_paragraphs} 段 · {new Date(report.created_at * 1000).toLocaleString('zh-CN')}</p><small>{report.model}</small></div>
+      <div className="review-summary" role="status"><strong>{report.stale ? '文稿已修改，检查结果已过期' : report.issues.length ? `${report.issues.length} 项需要核对` : '本次未发现明确问题'}</strong><p>已检查 {report.checked_paragraphs} 段 · {new Date(report.created_at * 1000).toLocaleString('zh-CN')}</p><small>{report.model}</small>{report.coverage && <p className="muted">{report.coverage}</p>}</div>
       {!report.original && <p className="review-notice">本次没有对照原稿，未检查事实一致性。</p>}
       {report.original && <details className="review-comparison"><summary>原稿与本次检查正文对照</summary><h4>{report.original_title}</h4><pre>{report.original}</pre><h4>本次检查正文</h4><pre>{report.text}</pre></details>}
       {report.issues.map((issue, index) => <article className={`review-issue ${issue.uncertain ? 'uncertain' : ''}`} key={issue.id}>

@@ -26,7 +26,7 @@ try {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(base);
-  await page.locator('.task-open').filter({ hasText: 'Review fixture' }).click();
+  await page.locator('.task-open').filter({ has: page.getByText('Review fixture', { exact: true }) }).click();
   await page.getByRole('button', { name: '检查', exact: true }).click();
   await page.getByRole('button', { name: '一键检查', exact: true }).click();
   await page.getByText('1 项需要核对', { exact: true }).waitFor();
@@ -48,10 +48,17 @@ try {
   assert.equal(versions.length, 1);
   await page.screenshot({ path: path.join(data, 'review.png'), fullPage: true });
   await page.getByRole('button', { name: '关闭预览', exact: true }).click();
+  await page.locator('.task-open').filter({ hasText: 'Long review fixture' }).click();
+  await page.getByRole('button', { name: '检查', exact: true }).click();
+  await page.getByRole('button', { name: '一键检查', exact: true }).click();
+  await page.getByRole('progressbar', { name: '文稿检查进度' }).waitFor();
+  assert(await page.getByRole('button', { name: '正在逐段检查…', exact: true }).isDisabled());
+  await page.getByText(/已检查 101 段/).waitFor();
+  await page.getByRole('button', { name: '关闭预览', exact: true }).click();
   await page.getByRole('button', { name: 'AI 大模型', exact: true }).click();
   await page.getByRole('button', { name: 'Jev 内容检查', exact: true }).click();
   await page.getByRole('heading', { name: 'Jev 创作检查助手' }).waitFor();
   assert.equal(await page.locator('input[type=password]').inputValue(), '');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, checks: ['check report', 'Unicode-safe highlight', 'suggestion preview', 'versioned accept', 'stale result disabled', 'recheck', 'independent configuration'], artifact: data }));
+  console.log(JSON.stringify({ ok: true, checks: ['check report', 'Unicode-safe highlight', 'suggestion preview', 'versioned accept', 'stale result disabled', 'recheck', '101 paragraphs with progress', 'independent configuration'], artifact: data }));
 } finally { await browser?.close(); child.kill(); }
