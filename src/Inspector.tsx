@@ -7,6 +7,8 @@ import { Button, Empty } from './components';
 import { clearDraft, readDraft, writeDraft } from './drafts';
 import { requestFeishu } from './Feishu';
 import { HistoryDialog } from './Recovery';
+import { DocumentReview } from './Jev';
+import type { ReviewIssue } from './Jev';
 import './inspector.css';
 
 type Draft = { text: string; segments: Segment[]; tab: string };
@@ -26,6 +28,9 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
   const [loopIndex, setLoopIndex] = useState<number | null>(null);
   const [speed, setSpeed] = useState(1);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<number | null>(null);
+  const textArea = useRef<HTMLTextAreaElement | null>(null);
+  const [location, setLocation] = useState<ReviewIssue | null>(null);
   const player = useRef<HTMLMediaElement | null>(null);
   const videoFrame = useRef<HTMLDivElement | null>(null);
   const documentBody = useRef<HTMLDivElement | null>(null);
@@ -197,6 +202,28 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
   }
   function stopFollowing() { if (segments.length && !editingText) setFollowing(false); }
 
+  function locateIssue(issue: ReviewIssue) {
+    setFollowing(false); setEditingText(false); setTab('text'); setLocation(issue);
+    player.current?.pause();
+  }
+  useEffect(() => {
+    if (!location || tab !== 'text') return;
+    const line = Array.from(draft).slice(0, location.start).join('').split('\n').length - 1;
+    setReviewTarget(line);
+    const node = syncedLines.current[line];
+    if (node && documentBody.current && !editingText) {
+      documentBody.current.scrollTop += node.getBoundingClientRect().top - documentBody.current.getBoundingClientRect().top;
+      if (player.current && segments[line]) { player.current.currentTime = segments[line].start; setPlaybackTime(segments[line].start); }
+    } else if (textArea.current) {
+      // Python offsets count Unicode code points; DOM selection counts UTF-16 units.
+      const points = Array.from(draft);
+      const start = points.slice(0, location.start).join('').length;
+      const end = points.slice(0, location.end).join('').length;
+      textArea.current.focus(); textArea.current.setSelectionRange(start, end);
+    }
+    setLocation(null);
+  }, [location, tab, draft, editingText, segments]);
+
   const video = detail && /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(detail.media_path);
   return <aside className="inspector">
     <div className="inspector-heading"><h2>文稿预览</h2><div className="inspector-heading-actions">
@@ -212,13 +239,13 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
           <button className="video-fullscreen" title={videoFullscreen ? '退出全屏' : '全屏播放'} aria-label={videoFullscreen ? '退出全屏' : '全屏播放'} onClick={toggleVideoFullscreen}>{videoFullscreen ? <ArrowsInSimple size={18}/> : <ArrowsOutSimple size={18}/>}</button>
         </div> : <audio ref={el => { player.current = el; }} onTimeUpdate={e => syncPlayback(e.currentTarget)} onSeeked={e => mediaSeeked(e.currentTarget)} onEnded={mediaEnded} controls preload="metadata" src={`/api/items/${detail.id}/media`}/>}
       </div>}
-      <div className="document-tabs"><div className="segmented">{[['text', '文稿'], ['timeline', '时间轴'], ['info', '信息']].map(([value, label]) =>
-        <button disabled={dirty && value !== tab} className={tab === value ? 'selected' : ''} key={value} onClick={() => { setTab(value); if (value !== 'text') setEditingText(false); }}>{label}</button>
+      <div className="document-tabs"><div className="segmented">{[['text', '文稿'], ['timeline', '时间轴'], ['check', '检查'], ['info', '信息']].map(([value, label]) =>
+        <button disabled={dirty && value !== tab} className={tab === value ? 'selected' : ''} key={value} onClick={() => { setTab(value); if (documentBody.current) documentBody.current.scrollTop = 0; if (value !== 'text') setEditingText(false); }}>{label}</button>
       )}</div><div className="transcript-tools">
         {tab === 'text' && segments.length > 0 && detail.media_path && <button disabled={editingText && dirty || saving || active} onClick={beginEditing}>{editingText ? '返回字幕' : '编辑全文'}</button>}
         <span>{(draft || '').length.toLocaleString()} 字</span>
       </div></div>
-      {!!segments.length && detail.media_path && tab !== 'info' && <div className="caption-toolbar" aria-label="字幕播放控制">
+      {!!segments.length && detail.media_path && ['text', 'timeline'].includes(tab) && <div className="caption-toolbar" aria-label="字幕播放控制">
         <button className="button" disabled={editingText} aria-pressed={following} onClick={() => setFollowing(!following)}>{following ? '跟随中' : '回到当前句'}</button>
         <button className="button" aria-pressed={loopIndex !== null} onClick={toggleLoop}>{loopIndex === null ? '单句循环' : '停止循环'}</button>
         <label>倍速<select aria-label="播放速度" value={speed} onChange={e => { const value = Number(e.target.value); setSpeed(value); if (player.current) player.current.playbackRate = value; }}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map(value => <option key={value} value={value}>{value}×</option>)}</select></label>
@@ -227,10 +254,10 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
       <div className="document-body" ref={documentBody} onWheel={stopFollowing} onTouchMove={stopFollowing}
         onPointerDown={e => { if (e.target === e.currentTarget) stopFollowing(); }}
         onKeyDown={e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) stopFollowing(); }}>
-        {tab === 'text' ? detail.transcript || dirty ? segments.length > 0 && detail.media_path && !editingText ?
+        {tab === 'check' ? <DocumentReview item={detail} items={state.items} settings={state.settings} notify={notify} updated={restored} locate={locateIssue} configure={() => navigate('models')}/> : tab === 'text' ? detail.transcript || dirty ? segments.length > 0 && detail.media_path && !editingText ?
           <div className="synced-transcript" aria-label="同步字幕">{segments.map((segment, index) =>
-            <button ref={node => { syncedLines.current[index] = node; }} className={`synced-line ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''}`} aria-current={index === activeSegment ? 'true' : undefined} title={`跳转到 ${duration(segment.start)}`} onClick={() => playSegment(index)} key={`${segment.start}-${index}`}><span>{duration(segment.start)}</span><strong>{segment.text}</strong></button>
-          )}</div> : <textarea aria-label="文稿正文" value={draft} readOnly={active || saving} onChange={e => editText(e.target.value)} spellCheck={false}/> :
+            <button ref={node => { syncedLines.current[index] = node; }} className={`synced-line ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''} ${index === reviewTarget ? 'review-target' : ''}`} aria-current={index === activeSegment ? 'true' : undefined} title={`跳转到 ${duration(segment.start)}`} onClick={() => { setReviewTarget(null); playSegment(index); }} key={`${segment.start}-${index}`}><span>{duration(segment.start)}</span><strong>{segment.text}</strong></button>
+          )}</div> : <textarea ref={textArea} aria-label="文稿正文" value={draft} readOnly={active || saving} onChange={e => editText(e.target.value)} spellCheck={false}/> :
           <Empty icon={<FileText size={26}/>} title={active ? '正在生成文稿' : '还没有文稿'} text={active ? '识别出的文字会持续出现在这里。' : '开始转录后，在这里查看和编辑全文。'}/> :
           tab === 'timeline' ? segments.length ? <div className="segments">{segments.map((segment, index) =>
             <div ref={node => { timelineLines.current[index] = node; }} className={`segment ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''}`} key={index}>

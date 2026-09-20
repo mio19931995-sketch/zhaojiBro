@@ -44,6 +44,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 - 抖音独立登录窗口与主页作品采集；其他公开链接通过 yt-dlp 处理。
 - 独立下载封面、音视频，优先使用可获取的字幕，选择保留目录和定位本地文件。
 - 接入 Agnes AI、DeepSeek 等 OpenAI Chat Completions 兼容文本服务，进行摘要、校正、改写、大纲和翻译；提供快捷配置与独立连接测试。
+- Jev 创作检查：逐段检查表达、对照原稿、高亮定位；用当前文本模型生成建议，逐项采纳并保留历史版本与字幕时间戳。
 - 使用 Windows 系统语音生成 WAV 配音；每份来源文稿分别保存配音正文、音色和语速，生成结果记录来源及制作参数。
 - 按起止时间截取本地音视频，配音与视频素材可直接定位到媒体文件。
 - 飞书 OAuth、知识库位置预设、新建或已有多维表格、字段及附件导出和失败重试。
@@ -72,6 +73,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 4. 将密钥粘贴到密码输入框，点击“测试连接”。通过后保存配置，即可用于文案摘要、校正、改写、大纲和翻译。
 
 接入方式依据 [Agnes 3.0 官方文档](https://agnes-ai.com/en/docs/agnes-30-flash)。密钥管理网页不是推理接口；程序会修正误填的 Agnes 控制台地址。测试连接需要有效密钥和对应模型权限，可能计入服务额度；模型列表可访问不等于密钥已验证。此处接入的是文本处理，未接入 Agnes 的图片或视频生成功能。
+
+### 使用 Jev 创作检查
+
+1. 打开 **AI 大模型 → Jev 内容检查**，填写自己的 TypeSafe API Key，验证连接并保存。此密钥独立于 Agnes、DeepSeek 等文本服务。
+2. 打开文稿右侧的 **检查** 页。新生成的文案会保留处理时的原文快照；旧文稿可手动选择对照原稿。不选择原稿时只检查表达。
+3. 点击 **一键检查**，查看高亮的问题段落和原稿对照。“定位正文”可跳转到正文或对应字幕位置。
+4. 点击 **生成修正建议**，由当前配置的文本模型（如 Agnes）生成候选文本。核对后点 **采纳这一处**，原稿自动进入历史版本，已有字幕时间戳保留。
+5. 修改后检查结果会标为过期，点击 **重新检查**。低置信度或信息不足的结论标为“待人工核对”，不会自动生成修正。
+
+依据 [TypeSafe HTTP API](https://docs.typesafe.ai/api) 接入，默认固定模型 `jev-1.13.0`。单次支持正文与原稿合计 22 KB（UTF-8）、最多 80 个非空段落，超限会明确提示拆分，不会静默截断。检查时将正文和对照原稿发送至 TypeSafe，生成建议时发送至所配置的文本服务。检查不验证外部事实真伪、音画同步或传播效果；模型判断仍需人工核对。真实连接需要用户自己的有效密钥与额度，离线测试不能代替真实服务验收。
 
 ## 数据存储与备份
 
@@ -109,12 +120,14 @@ npm.cmd run dev
 可重复的后端回归测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_parity.py tests/test_acceptance.py tests/test_creator_safety.py tests/test_llm_providers.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_parity.py tests/test_acceptance.py tests/test_creator_safety.py tests/test_llm_providers.py tests/test_review.py -q
 ```
 
 `tests/test_creator_safety.py` 覆盖字幕时间戳保护、历史版本、恢复与回收站，以及配音来源和制作参数等内容保护行为。这些测试使用独立临时资料库，云端交互使用测试响应，不能代表真实账号写入或每个平台都已验证。
 
 `tests/test_llm_providers.py` 使用模拟 HTTP 响应验证 Agnes 地址规范化、服务密钥隔离和连接测试；不使用个人 API Key，不代表账号认证或服务额度已经验收。
+
+`tests/test_review.py` 验证 Jev 响应校验、原稿快照、低置信度处理、过期建议拦截和版本及时间戳保护。构建后运行 `node tests/review-workflow.mjs` 可在独立资料库验证检查、高亮定位、建议采纳与重新检查；模型使用离线测试响应，不消耗账号额度。
 
 可重复的创作者工作流界面验证：
 

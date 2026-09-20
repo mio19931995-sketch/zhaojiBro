@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import store, engine, integrations, secrets, workflows, assets
+from . import store, engine, integrations, secrets, workflows, assets, review
 
 
 @asynccontextmanager
@@ -30,6 +30,7 @@ async def lifespan(app):
 
 app = FastAPI(title='Lulu Workbench', lifespan=lifespan, docs_url=None, redoc_url=None)
 app.include_router(workflows.router)
+app.include_router(review.router)
 
 
 @app.middleware('http')
@@ -57,7 +58,7 @@ async def bad_value(request, exc):
 
 @app.exception_handler(RequestValidationError)
 async def invalid_input(request, exc):
-    if request.url.path == '/api/llm/test':
+    if request.url.path in ('/api/llm/test', '/api/jev/test', '/api/jev/settings'):
         return JSONResponse({'detail': '模型测试参数格式不正确，请检查服务地址、模型名称和 API Key'}, 422)
     return await request_validation_exception_handler(request, exc)
 
@@ -72,7 +73,9 @@ def require(item_id):
 def public_settings():
     cfg = store.settings()
     return {k: v for k, v in cfg.items() if not k.endswith('_enc')} | {
-        'has_feishu_secret': bool(cfg.get('feishu_secret_enc'))} | integrations.llm_key_flags(cfg)
+        'has_feishu_secret': bool(cfg.get('feishu_secret_enc')),
+        'has_jev_key': bool(cfg.get('jev_api_key_enc')),
+        'jev_model': cfg.get('jev_model', review.MODEL)} | integrations.llm_key_flags(cfg)
 
 
 @app.get('/api/health')
@@ -459,6 +462,7 @@ class TextInput(BaseModel):
     action: str = 'summary'
     instruction: str = ''
     title: str = '处理后的文稿'
+    source_id: str = ''
 
 
 @app.post('/api/process-text')
@@ -467,7 +471,10 @@ def process_text(body: TextInput):
         text = integrations.process_text(body.text, body.action, body.instruction)
     except Exception as exc:
         raise ValueError('文案处理失败：' + str(exc)[:700]) from exc
-    return store.add(body.title, kind='output', transcript=engine.to_simplified(text), status='done', progress=100, phase='文案处理完成')
+    item = store.add(body.title, kind='output', transcript=engine.to_simplified(text), status='done', progress=100, phase='文案处理完成', metadata={'source_id': body.source_id, 'action': body.action})
+    store.object_put('text_origin', item['id'], {'text': body.text, 'source_id': body.source_id,
+                                               'title': '处理时的原文', 'action': body.action})
+    return item
 
 
 @app.get('/api/voices')

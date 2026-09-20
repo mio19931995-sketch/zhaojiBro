@@ -1,0 +1,21 @@
+.jev-settings { max-width: 760px; padding: 24px; }
+.jev-settings p, .document-review p { line-height: 1.7; }
+.jev-settings label, .document-review label { display: grid; gap: 8px; margin: 18px 0; }
+.jev-settings input, .document-review select { width: 100%; min-width: 0; }
+.jev-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.document-review { padding: 0 4px 20px; font-size: 13px; }
+.document-review h3 { margin-top: 4px; }
+.review-summary { border-block: 1px solid var(--line); padding: 16px 0; margin: 20px 0 12px; }
+.review-summary p { margin: 6px 0; }
+.review-notice { background: var(--selection-soft); padding: 12px; border-radius: 8px; }
+.review-comparison { margin: 16px 0; }
+.review-comparison summary { cursor: pointer; color: var(--accent); }
+.review-comparison pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.8; max-height: 280px; overflow: auto; }
+.review-issue { margin: 16px 0; padding: 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; }
+.review-issue h4 { margin: 0 0 12px; }
+.review-issue mark { display: block; background: #f5e6b8; color: #3d3521; padding: 8px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.review-issue.uncertain { border-left-color: #b0914e; }
+.review-suggestion { border-top: 1px solid var(--line); padding-top: 12px; }
+.review-suggestion p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.review-suggestion small { display: block; margin-top: 10px; color: var(--muted); }
+.synced-line.review-target { box-shadow: inset 3px 0 #b0914e; background: #f5e6b8; color: #3d3521; }
