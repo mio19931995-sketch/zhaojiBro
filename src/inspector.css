@@ -11,3 +11,15 @@
 .caption-save-area .save-row{justify-content:flex-end;flex-wrap:wrap}
 .synced-line.looping,.segment.looping{box-shadow:inset -3px 0 var(--accent)}
 .document-body{overscroll-behavior:contain}
+.inspector{min-height:0}
+.inspector-heading,.document-footer{flex-shrink:0}
+.document-title{flex-shrink:0}
+.document-title h2{max-height:5.1em;overflow-y:auto}
+.document-body{min-height:0}
+.export-row.secondary .codex-handoff{flex:0 0 auto;color:var(--accent);border-color:var(--line);background:var(--input);padding:5px 7px}
+@media(max-height:740px){
+  .document-title{padding-top:10px;padding-bottom:10px}
+  .document-title h2{max-height:3.4em}
+  .inspector .media-player video{max-height:120px}
+  .inspector .window-fullscreen video,.inspector .video-frame:fullscreen video{max-height:none}
+}

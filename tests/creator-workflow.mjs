@@ -45,6 +45,19 @@ try {
   await page.goto(base);
   await page.locator('.task-open').filter({ hasText: 'creator-fixture' }).click();
   await page.waitForSelector('.synced-line');
+  const originalTitle = await page.locator('.document-title h2').textContent();
+  await page.locator('.document-title h2').evaluate(el => { el.textContent = '一键复刻视频动作运镜与人物场景，上传参考视频提取关键词，再选择人物和产品图片生成。'.repeat(5); });
+  for (const size of [{ width: 1370, height: 910 }, { width: 1100, height: 700 }, { width: 900, height: 620 }]) {
+    await page.setViewportSize(size);
+    const visible = await page.getByRole('button', { name: '交给 Codex', exact: true }).evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    });
+    assert(visible, `Codex handoff clipped with long title at ${size.width}x${size.height}`);
+  }
+  await page.setViewportSize({ width: 1370, height: 910 });
+  await page.locator('.document-title h2').evaluate((el, title) => { el.textContent = title; }, originalTitle);
+  checks.push('Codex handoff stays visible with long video titles at three window sizes');
   const video = page.locator('.inspector video');
   await video.evaluate(async el => { el.muted = true; el.currentTime = 6.2; await el.play(); });
   await page.waitForFunction(() => document.querySelector('.synced-line.current')?.textContent.includes('Sentence 4.'));
