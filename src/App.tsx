@@ -9,11 +9,12 @@ import { DownloadOptions, initialOptions } from './DownloadOptions';
 import type { Options } from './DownloadOptions';
 import { Inspector } from './Inspector';
 import { TrashView } from './Recovery';
+import { CodexConnection } from './CodexConnection';
 
 const NAV = [
   { group: '工作台', items: [['extract','文案提取',Headphones],['process','文案处理',FileText],['outputs','内容输出',Stack],['voice','文案配音',Microphone],['clip','直播切片',Scissors],['collect','主页采集',User]] },
   { group: '素材库', items: [['library','文稿库',Folder],['output-library','输出库',PencilSimple],['voice-library','音频库',Waveform],['clip-library','切片库',List],['trash','回收站',Trash]] },
-  { group: '配置', items: [['models','AI 大模型',Cube],['obsidian','Obsidian 知识库',BookOpen],['feishu','飞书知识库',CloudArrowUp]] },
+  { group: '配置', items: [['models','AI 大模型',Cube],['codex','Codex 连接',Link],['obsidian','Obsidian 知识库',BookOpen],['feishu','飞书知识库',CloudArrowUp]] },
 ] as const;
 const TITLES: Record<string, [string, string]> = {
   extract: ['文案提取', '拖入音视频或粘贴作品链接，提取文案与作品信息。'],
@@ -31,6 +32,7 @@ const TITLES: Record<string, [string, string]> = {
   obsidian: ['Obsidian 知识库', '将选择的文稿保存为 Markdown，放进你的本地知识库。'],
   feishu: ['飞书知识库', '连接自己的多维表格，在需要时主动导出文稿。'],
   settings: ['设置', '管理全局偏好、文件存储与服务连接。'],
+  codex: ['Codex 连接', '把 Lulu 素材库交给 Codex，继续分析、改稿与剪辑。'],
 };
 
 let extractOptionsCache:Options|null=null;
@@ -62,7 +64,7 @@ export default function App() {
   const select = (id: string) => { setSelected(id); setInspector(true); };
   const shared: Shared = { state, refresh, notify, select, selected, processingSource, navigate };
   const model = state.models.find(m => m.id === state.settings.model);
-  const showInspector = inspector && !['settings', 'models', 'feishu', 'obsidian', 'trash'].includes(page) && (page !== 'collect' || !!selected);
+  const showInspector = inspector && !['settings', 'models', 'codex', 'feishu', 'obsidian', 'trash'].includes(page) && (page !== 'collect' || !!selected);
   const current = state.items.find(i => i.id === selected);
   return <div className="app-shell">
     <aside className="sidebar">
@@ -83,6 +85,7 @@ export default function App() {
           {page === 'clip' && <Clip {...shared}/>}
           {page === 'trash' && <TrashView {...shared}/>}
           {page === 'models' && <Models {...shared}/>}
+          {page === 'codex' && <CodexConnection {...shared}/>}
           {['settings','feishu','obsidian'].includes(page) && <Configuration {...shared} page={page}/>}
         </main>
         {showInspector && <Inspector key={current?.id || 'empty'} item={current} {...shared} close={() => setInspector(false)}/>}
@@ -166,7 +169,7 @@ function Extract(props: Shared) {
       <button className={`drop-zone ${drag ? 'dragging' : ''}`} disabled={busy} onClick={() => input.current?.click()} onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={e => { e.preventDefault(); setDrag(false); importFiles(e.dataTransfer.files); }}>
         <DownloadSimple size={26}/><strong>{busy ? '正在导入素材…' : '拖入本地音视频文件'}</strong><span>或点击选择</span><small>MP3 · WAV · M4A · MP4 · MOV · 字幕 / 文稿</small>
       </button><input ref={input} data-testid="file-import" type="file" multiple accept="audio/*,video/*,.txt,.md,.srt" hidden onChange={e => e.target.files && importFiles(e.target.files)}/>
-      <div className="inset"><h3><Link size={17}/>粘贴链接，自动下载并转录</h3><div className="input-row"><input aria-label="作品链接" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && addLink()} placeholder="抖音 / 小红书 / B 站 / YouTube / 公开作品链接…"/><Button primary onClick={addLink} disabled={busy}><DownloadSimple size={16}/>抓取</Button></div><DownloadOptions value={options} change={changeOptions} notify={notify}/><div className="hint-row"><span>先加入队列，点击任务上的「开始」后下载和转录。</span><button onClick={() => navigate('settings')}>登录与采集设置<CaretRight size={12}/></button></div></div>
+      <div className="inset"><h3><Link size={17}/>粘贴链接，自动下载并转录</h3><div className="input-row"><input aria-label="作品链接" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && addLink()} placeholder="抖音 / 小红书 / B 站 / YouTube / 公开作品链接…"/><Button primary onClick={addLink} disabled={busy}><DownloadSimple size={16}/>抓取</Button></div><DownloadOptions codexCache={state.settings.codex_keep_video==='true'} value={options} change={changeOptions} notify={notify}/><div className="hint-row"><span>先加入队列，点击任务上的「开始」后下载和转录。</span><button onClick={() => navigate('settings')}>登录与采集设置<CaretRight size={12}/></button></div></div>
       <div className="inset recording-row"><div className="section-icon"><Microphone size={21}/></div><div><h3>录一段声音</h3><p>{recording ? `正在录音 · ${duration(recordSeconds)}` : '选择声音来源，结束后自动加入转录队列'}</p></div><select aria-label="录音来源" disabled={recording} value={recordSource} onChange={e=>setRecordSource(e.target.value)}><option value="microphone">麦克风</option><option value="system">系统声音</option><option value="mix">麦克风 + 系统混录</option></select><Button primary onClick={record}>{recording ? <Stop size={16}/> : <Microphone size={16}/>} {recording ? '结束录音' : '开始录音'}</Button></div>
     </section>
     <div className="section-bar"><h2><span className="tiny-dot"/>任务队列 <small>{state.items.filter(i => ['idle','paused','queued','processing'].includes(i.status)).length} 个待处理</small></h2><div className="section-actions"><div className="segmented">{[['all','全部任务'],['active','进行中'],['done','已完成']].map(([v,t]) => <button className={filter === v ? 'selected' : ''} onClick={() => setFilter(v)} key={v}>{t}</button>)}</div><Button primary onClick={async () => { try { for(const i of state.items.filter(i=>['idle','paused','error'].includes(i.status)))await preparePlatform(i); const r = await api('/start-all', 'POST'); await refresh(); notify(`已启动 ${r.count} 个任务`); } catch (e) { notify((e as Error).message, true); } }} disabled={!state.items.some(i => ['idle','error','paused'].includes(i.status))}><Play size={15}/>全部开始</Button></div></div>

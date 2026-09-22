@@ -12,9 +12,11 @@
     "test:ui": "node tests/ui.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@phosphor-icons/react": "^2.1.10",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",

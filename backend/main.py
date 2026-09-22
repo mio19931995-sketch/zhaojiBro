@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import store, engine, integrations, secrets, workflows, assets, review
+from . import store, engine, integrations, secrets, workflows, assets, review, codex_connection
 
 
 @asynccontextmanager
@@ -31,6 +31,7 @@ async def lifespan(app):
 app = FastAPI(title='Lulu Workbench', lifespan=lifespan, docs_url=None, redoc_url=None)
 app.include_router(workflows.router)
 app.include_router(review.router)
+app.include_router(codex_connection.router)
 
 
 @app.middleware('http')
@@ -391,6 +392,8 @@ def save_settings_input(body):
         raise ValueError('不支持的模型')
     if 'language' in values and values['language'] not in ('auto', 'zh', 'en', 'ja', 'ko'):
         raise ValueError('不支持的语言')
+    if 'codex_keep_video' in values and values['codex_keep_video'] not in ('true', 'false'):
+        raise ValueError('无效的 Codex 素材缓存设置')
     if 'llm_url' in values or 'llm_model' in values or 'llm_api_key' in body:
         current = store.settings()
         url, model = integrations.normalize_llm_config(

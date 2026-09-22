@@ -45,6 +45,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 - 独立下载封面、音视频，优先使用可获取的字幕，选择保留目录和定位本地文件。
 - 接入 Agnes AI、DeepSeek 等 OpenAI Chat Completions 兼容文本服务，进行摘要、校正、改写、大纲和翻译；提供快捷配置与独立连接测试。
 - Jev 创作检查：逐段检查表达、对照原稿、高亮定位；用当前文本模型生成建议，逐项采纳并保留历史版本与字幕时间戳。
+- Codex 素材直连：通过本地 MCP 搜索已抓取素材、读取正文和时间轴、按时间查看视频画面，复用 Lulu 缓存，无需另存并上传视频。
 - 使用 Windows 系统语音生成 WAV 配音；每份来源文稿分别保存配音正文、音色和语速，生成结果记录来源及制作参数。
 - 按起止时间截取本地音视频，配音与视频素材可直接定位到媒体文件。
 - 飞书 OAuth、知识库位置预设、新建或已有多维表格、字段及附件导出和失败重试。
@@ -84,6 +85,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 
 依据 [TypeSafe HTTP API](https://docs.typesafe.ai/api) 接入，默认固定模型 `jev-1.13.0`。长文稿会自动分批检查并显示进度，不再受 22 KB 或 80 段的整篇限制。表达检查使用相邻上下文；对照检查会覆盖全部原稿分段，跨段依据不足或结论冲突时提示人工核对。批次中途失败不会覆盖上一次完整报告。检查时将正文和对照原稿发送至 TypeSafe，生成建议时发送至所配置的文本服务。检查不验证外部事实真伪、音画同步或传播效果；模型判断仍需人工核对。真实连接需要用户自己的有效密钥与额度，离线测试不能代替真实服务验收。
 
+### 连接 Codex
+
+1. 电脑上先安装并登录 Codex，确保安装了 Codex CLI（终端可运行 `codex --help`）。
+2. 在 Lulu 左侧打开 **Codex 连接**，点击 **连接 Codex**。也可在项目目录运行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\connect-codex.ps1`。
+3. 开启 **为 Codex 保留视频缓存**。新的音视频抓取任务会保留完整视频，覆盖仅音频和临时清理选项；只下载封面的任务不受影响。缓存占用本机磁盘，旧视频若已清理需重新抓取。
+4. 重新打开 Codex，使新配置的 `lulu` MCP 服务生效。配置方式使用 [Codex 官方 MCP 接口](https://developers.openai.com/codex/mcp/)。
+5. 抓取完成后，在 Codex 说：“读取 Lulu 最近抓取的视频，分析文稿并查看关键画面。”指定素材时，在 Lulu 右侧点击 **交给 Codex**，把复制的提示粘贴到 Codex；无需上传视频文件。
+
+本地连接提供五个读取工具：`lulu_list_assets`（搜索及分页）、`lulu_get_asset`（素材详情与媒体路径）、`lulu_read_transcript`（正文及时间轴分页）、`lulu_current_asset`（用户指定的素材）、`lulu_video_frame`（指定时间的图片）。Codex 后续剪辑可直接使用返回的媒体路径；读到文稿不等于已分析全部画面。
+
+服务使用官方 MCP SDK 的 stdio 通信，不开放额外网络端口。关闭 Lulu 后仍可读取已保存素材；不修改文稿、不暂停下载、不提供账号密钥、Cookie 或平台鉴权直链。它连接的是同一台电脑上的 Codex，不是网页端远程访问；素材和画面在你要求分析时进入 Codex 的模型上下文。不要移动或删除项目、依赖和 Lulu 数据目录，移动后需重新配置连接。
+
+`Codex 连接` 页面显示的是配置状态，不代表当前对话已经加载服务。若新工具未出现，请完全退出并重新打开 Codex。`codex mcp remove lulu` 可移除连接；取消视频缓存开关可恢复原下载选项，已有视频不会自动删除。
+
 ## 数据存储与备份
 
 - `data/library.sqlite3`：文稿、任务、历史版本、回收站记录、草稿与设置。
@@ -120,7 +135,7 @@ npm.cmd run dev
 可重复的后端回归测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_parity.py tests/test_acceptance.py tests/test_creator_safety.py tests/test_llm_providers.py tests/test_review.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_parity.py tests/test_acceptance.py tests/test_creator_safety.py tests/test_llm_providers.py tests/test_review.py tests/test_codex_bridge.py -q
 ```
 
 `tests/test_creator_safety.py` 覆盖字幕时间戳保护、历史版本、恢复与回收站，以及配音来源和制作参数等内容保护行为。这些测试使用独立临时资料库，云端交互使用测试响应，不能代表真实账号写入或每个平台都已验证。
@@ -128,6 +143,8 @@ npm.cmd run dev
 `tests/test_llm_providers.py` 使用模拟 HTTP 响应验证 Agnes 地址规范化、服务密钥隔离和连接测试；不使用个人 API Key，不代表账号认证或服务额度已经验收。
 
 `tests/test_review.py` 验证 Jev 响应校验、原稿快照、低置信度处理、过期建议拦截和版本及时间戳保护。构建后运行 `node tests/review-workflow.mjs` 可在独立资料库验证检查、高亮定位、建议采纳与重新检查；模型使用离线测试响应，不消耗账号额度。
+
+`node tests/codex-mcp.mjs` 使用真实 MCP 客户端和 FFmpeg 验证 stdio 握手、素材列表、中文分页、指定素材及视频画面，不调用外部模型。`tests/test_codex_bridge.py` 验证只读访问、回收站隔离、缓存保留选项及素材交接。
 
 可重复的创作者工作流界面验证：
 

@@ -17,6 +17,8 @@ def options(item):
               'cover': cfg['download_cover'] == 'true', 'subtitles': cfg['prefer_subtitles'] == 'true',
               'directory': cfg['save_directory'], 'media': True}
     result.update(item['metadata'].get('options', {}))
+    if cfg.get('codex_keep_video') == 'true' and result.get('media', True):
+        result.update(mode='video', keep=True)
     if item['metadata'].get('download_only') or item['metadata'].get('action') == 'assets':
         result['keep'] = True
     return result

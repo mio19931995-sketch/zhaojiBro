@@ -178,6 +178,7 @@ DEFAULTS = {'model': 'base', 'language': 'auto', 'llm_url': 'http://127.0.0.1:11
             'theme': 'light', 'cookies_path': '', 'feishu_app_id': '', 'feishu_base': '', 'feishu_table': '',
             'feishu_title_field': '标题', 'feishu_text_field': '转录文稿', 'feishu_url_field': '原作品链接', 'obsidian_path': ''}
 DEFAULTS.update({'download_mode': 'audio', 'keep_media': 'false', 'download_cover': 'false',
+                 'codex_keep_video': 'false',
                  'prefer_subtitles': 'true', 'save_directory': '',
                  'feishu_single_existing': '', 'feishu_single_new': '',
                  'feishu_collection_existing': '', 'feishu_collection_new': ''})
