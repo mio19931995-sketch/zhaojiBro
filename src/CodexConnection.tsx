@@ -30,7 +30,7 @@ export function CodexConnection({ refresh, notify }: Shared) {
     <p className="muted">启用后，新的音视频抓取任务会保留完整视频，覆盖“仅音频”和临时清理选项。缓存由 Lulu 自动管理，会占用磁盘；关闭后恢复原来的下载选项。已经清理的视频需要重新抓取。</p>
     <h3>怎么使用</h3>
     <ol><li>首次连接后重新打开 Codex，加载 Lulu 工具。</li><li>在 Lulu 抓取视频，等待完成。</li><li>在 Codex 说：“读取 Lulu 最近抓取的视频，帮我分析内容。”</li></ol>
-    <p>指定某一份素材时，在右侧预览点击“交给 Codex”，然后把复制的提示粘贴到 Codex。视频本身无需上传。</p>
+    <p>指定某一份素材时，在右侧预览点击“复制到 Codex”，或在该预览中按 Ctrl+Alt+C，内容会自动进入系统剪贴板。自行切换到 Codex，选好项目与对话，再按 Ctrl+V 粘贴并发送；不会自动跳转或发送。视频本身无需上传。</p>
     <p className="muted">“配置已写入”不代表当前 Codex 对话已加载连接。连接适用于这台电脑上的 Codex；关闭 Lulu 后仍可读取已经保存的素材。</p>
   </section>;
 }

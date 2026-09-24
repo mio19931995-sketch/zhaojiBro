@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, session, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, session, desktopCapturer, clipboard } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -80,6 +80,11 @@ async function start() {
     if (event.sender !== window.webContents || !event.senderFrame?.url.startsWith(baseURL + '/')) throw new Error('无效的页面来源');
   }
   ipcMain.handle('lulu:open-data', async event => { localEvent(event); await shell.openPath(dataDir); });
+  ipcMain.handle('lulu:copy-text', (event, text) => {
+    localEvent(event);
+    if (typeof text !== 'string' || text.length > 12000) throw new Error('无效的复制内容');
+    clipboard.writeText(text);
+  });
   ipcMain.handle('lulu:choose-folder', async event => { localEvent(event); const result = await dialog.showOpenDialog(window, { title: '选择保存文件夹', properties: ['openDirectory'] }); return result.canceled ? '' : result.filePaths[0]; });
   ipcMain.handle('lulu:show-item', async (event, id,kind='media') => {
     localEvent(event);

@@ -39,6 +39,9 @@ try {
   await api(`/items/${item.id}`, 'PATCH', { segments });
   browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : undefined, headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
   const page = await browser.newPage({ viewport: { width: 1370, height: 910 } });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async value => { window.__copiedText = value; } } });
+  });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('dialog', dialog => dialog.accept());
@@ -49,7 +52,7 @@ try {
   await page.locator('.document-title h2').evaluate(el => { el.textContent = '一键复刻视频动作运镜与人物场景，上传参考视频提取关键词，再选择人物和产品图片生成。'.repeat(5); });
   for (const size of [{ width: 1370, height: 910 }, { width: 1100, height: 700 }, { width: 900, height: 620 }]) {
     await page.setViewportSize(size);
-    const visible = await page.getByRole('button', { name: '交给 Codex', exact: true }).evaluate(el => {
+    const visible = await page.getByRole('button', { name: '复制到 Codex', exact: true }).evaluate(el => {
       const r = el.getBoundingClientRect();
       return r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
     });
@@ -142,10 +145,21 @@ try {
   checks.push('delete to trash; batch restore; restored document is usable');
   await page.getByRole('button', { name: script.title, exact: false }).first().click();
   const handoff = page.waitForResponse(r => r.url().endsWith('/api/codex/select') && r.request().method() === 'POST');
-  await page.getByRole('button', { name: '交给 Codex', exact: true }).click();
+  await page.getByRole('button', { name: '复制到 Codex', exact: true }).click();
   const selected = await handoff;
   assert(selected.ok());
-  assert((await selected.json()).prompt.includes(script.id));
+  const copied = (await selected.json()).prompt;
+  assert(copied.includes(script.id) && copied.includes(script.title));
+  await page.waitForFunction(expected => window.__copiedText === expected, copied);
+  await api('/codex/select', 'POST', { item_id: item.id });
+  assert.equal(await page.evaluate(() => window.__copiedText), copied, 'Later selection must not change copied reference');
+  await page.evaluate(() => { window.__copiedText = ''; window.desktop = { copyText: async text => { window.__copiedText = text; } }; });
+  const shortcut = page.waitForResponse(r => r.url().endsWith('/api/codex/select') && r.request().method() === 'POST');
+  await page.keyboard.press('Control+Alt+c');
+  assert((await shortcut).ok());
+  await page.waitForFunction(expected => window.__copiedText === expected, copied);
+  assert.equal(await page.locator('.document-title h2').textContent(), script.title);
+  checks.push('One-click copy and Ctrl+Alt+C use exact ID and title without navigation or sending');
   await page.getByRole('button', { name: 'Codex 连接', exact: true }).click();
   await page.getByRole('heading', { name: 'Lulu 素材直连' }).waitFor();
   await page.getByLabel('为 Codex 保留视频缓存').check();

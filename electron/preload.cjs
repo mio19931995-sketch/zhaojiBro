@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('desktop', {
   openData: () => ipcRenderer.invoke('lulu:open-data'),
+  copyText: text => ipcRenderer.invoke('lulu:copy-text', text),
   showItem: (id,kind='media') => ipcRenderer.invoke('lulu:show-item', id,kind),
   chooseFolder: () => ipcRenderer.invoke('lulu:choose-folder'),
   openExternal: url => ipcRenderer.invoke('lulu:open-external', url),

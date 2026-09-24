@@ -65,7 +65,7 @@ register('lulu_read_transcript', '分页读取正文和带时间戳的字幕；�
   item_id: id, text_offset: z.number().int().min(0).max(10000000).default(0), text_limit: z.number().int().min(1).max(20000).default(8000),
   segment_offset: z.number().int().min(0).max(1000000).default(0), segment_limit: z.number().int().min(1).max(200).default(100)
 }, 'transcript');
-register('lulu_current_asset', '读取用户在 Lulu 点击“交给 Codex”指定的素材；未指定时用 lulu_list_assets 查找。', {}, 'current');
+register('lulu_current_asset', '读取用户在 Lulu 点击“复制到 Codex”指定的素材；未指定时用 lulu_list_assets 查找。', {}, 'current');
 register('lulu_video_frame', '直接读取 Lulu 缓存视频在指定秒数的画面，返回可见图片；无需手动上传视频。', {
   item_id: id, seconds: z.number().min(0).max(86400).default(0)
 }, 'frame');

@@ -91,7 +91,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 2. 在 Lulu 左侧打开 **Codex 连接**，点击 **连接 Codex**。也可在项目目录运行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\connect-codex.ps1`。
 3. 开启 **为 Codex 保留视频缓存**。新的音视频抓取任务会保留完整视频，覆盖仅音频和临时清理选项；只下载封面的任务不受影响。缓存占用本机磁盘，旧视频若已清理需重新抓取。
 4. 重新打开 Codex，使新配置的 `lulu` MCP 服务生效。配置方式使用 [Codex 官方 MCP 接口](https://developers.openai.com/codex/mcp/)。
-5. 抓取完成后，在 Codex 说：“读取 Lulu 最近抓取的视频，分析文稿并查看关键画面。”指定素材时，在 Lulu 右侧点击 **交给 Codex**，把复制的提示粘贴到 Codex；无需上传视频文件。
+5. 抓取完成后，在 Codex 说：“读取 Lulu 最近抓取的视频，分析文稿并查看关键画面。”指定素材时，在 Lulu 右侧点击 **复制到 Codex**，也可在素材预览中按 `Ctrl+Alt+C`，内容会自动复制到系统剪贴板。自行切换到 Codex 并选好项目和对话后，按 `Ctrl+V` 粘贴并发送；不会自动切换、粘贴或发送，无需上传视频文件。复制内容包含固定的素材 ID 和标题，后续切换素材不会改变已有引用。
 
 本地连接提供五个读取工具：`lulu_list_assets`（搜索及分页）、`lulu_get_asset`（素材详情与媒体路径）、`lulu_read_transcript`（正文及时间轴分页）、`lulu_current_asset`（用户指定的素材）、`lulu_video_frame`（指定时间的图片）。Codex 后续剪辑可直接使用返回的媒体路径；读到文稿不等于已分析全部画面。
 

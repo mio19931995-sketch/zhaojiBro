@@ -119,7 +119,7 @@ def current_asset(args):
     with connection() as con:
         row = con.execute("SELECT value FROM objects WHERE kind='codex_handoff' AND id='current'").fetchone()
     if not row:
-        return {'selected': False, 'message': '尚未指定素材。可直接列出最近素材，或在 Lulu 点击“交给 Codex”。'}
+        return {'selected': False, 'message': '尚未指定素材。可直接列出最近素材，或在 Lulu 点击“复制到 Codex”。'}
     value = json.loads(row['value'])
     return {'selected': True, 'selected_at': value['selected_at'], 'asset': asset({'item_id': value['item_id']})}
 

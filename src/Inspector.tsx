@@ -28,6 +28,7 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
   const [loopIndex, setLoopIndex] = useState<number | null>(null);
   const [speed, setSpeed] = useState(1);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [copyingToCodex, setCopyingToCodex] = useState(false);
   const [reviewTarget, setReviewTarget] = useState<number | null>(null);
   const textArea = useRef<HTMLTextAreaElement | null>(null);
   const [location, setLocation] = useState<ReviewIssue | null>(null);
@@ -57,6 +58,28 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
   }, [item?.id, item?.updated_at, dirty, saving, notify]);
 
   const active = !!item && ['processing', 'queued'].includes(item.status);
+  async function copyToCodex() {
+    if (!detail || copyingToCodex || active || saving) return;
+    if (dirty) { notify('请先保存或放弃修改，再复制素材引用', true); return; }
+    setCopyingToCodex(true);
+    try {
+      const result = await api('/codex/select', 'POST', { item_id: detail.id });
+      if (window.desktop?.copyText) await window.desktop.copyText(result.prompt);
+      else await navigator.clipboard.writeText(result.prompt);
+      notify('已复制这条素材。选好 Codex 项目和对话后，按 Ctrl+V 粘贴并发送');
+    } catch { notify('复制未成功，请重试“复制到 Codex”', true); }
+    finally { setCopyingToCodex(false); }
+  }
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.altKey && !event.shiftKey && event.code === 'KeyC') {
+        event.preventDefault();
+        if (!event.repeat) void copyToCodex();
+      }
+    };
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
+  }, [detail, copyingToCodex, active, saving, dirty, notify]);
   const timed = !!detail?.segments.length;
   const lineCount = draft.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').length;
   const changedStructure = dirty && tab === 'text' && timed && lineCount !== detail?.segments.length;
@@ -281,13 +304,7 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
         <div className="save-row"><Button disabled={saving} onClick={discard}>放弃</Button>{tab === 'text' && timed && <Button disabled={saving || !draft.trim()} onClick={saveScript}>另存口播稿</Button>}<Button primary disabled={saving || active || changedStructure} onClick={save}><FloppyDisk size={15}/>保存</Button></div>
       </div> : <>
         <div className="export-row"><Button disabled={!detail.transcript} onClick={() => navigator.clipboard.writeText(draft).then(() => notify('已复制全文')).catch(() => notify('复制失败，请手动选中复制', true))}><Copy size={15}/>复制</Button>{['txt', 'md', 'srt'].map(fmt => <a className={`button ${(!detail.transcript || (fmt === 'srt' && !detail.segments.length)) ? 'disabled' : ''}`} key={fmt} href={`/api/items/${detail.id}/export/${fmt}`} download>{fmt.toUpperCase()}<DownloadSimple size={13}/></a>)}</div>
-        <div className="export-row secondary"><Button className="codex-handoff" disabled={active} onClick={async () => {
-          try {
-            const result = await api('/codex/select', 'POST', { item_id: detail.id });
-            try { await navigator.clipboard.writeText(result.prompt); notify('素材已指定，提示已复制。粘贴到 Codex 即可继续'); }
-            catch { notify('素材已指定。在 Codex 说“读取 Lulu 当前指定的素材”即可'); }
-          } catch (e) { notify((e as Error).message, true); }
-        }}><ArrowSquareOut size={14}/>交给 Codex</Button><Button disabled={!detail.transcript} onClick={() => navigate('process', detail.id)}><PencilSimple size={14}/>继续处理</Button><Button disabled={!detail.transcript} onClick={() => exportIntegration('feishu')}><CloudArrowUp size={14}/>存入飞书</Button><Button disabled={!detail.transcript} title="存入 Obsidian" onClick={() => exportIntegration('obsidian')}><BookOpen size={15}/></Button></div>
+        <div className="export-row secondary"><Button className="codex-handoff" title="复制指定素材到剪贴板（Ctrl+Alt+C），再到 Codex 手动粘贴" disabled={active || copyingToCodex || saving} onClick={copyToCodex}><Copy size={14}/>{copyingToCodex ? '复制中…' : '复制到 Codex'}</Button><Button disabled={!detail.transcript} onClick={() => navigate('process', detail.id)}><PencilSimple size={14}/>继续处理</Button><Button disabled={!detail.transcript} onClick={() => exportIntegration('feishu')}><CloudArrowUp size={14}/>存入飞书</Button><Button disabled={!detail.transcript} title="存入 Obsidian" onClick={() => exportIntegration('obsidian')}><BookOpen size={15}/></Button></div>
 
       </>}</footer>
       {historyOpen && <HistoryDialog itemId={detail.id} close={() => setHistoryOpen(false)} restored={restored} notify={notify}/>}
