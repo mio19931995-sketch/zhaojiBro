@@ -277,6 +277,11 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
       <div className="document-body" ref={documentBody} onWheel={stopFollowing} onTouchMove={stopFollowing}
         onPointerDown={e => { if (e.target === e.currentTarget) stopFollowing(); }}
         onKeyDown={e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) stopFollowing(); }}>
+        {!detail.media_path && !active && <div className="missing-media-note" role="note" aria-label="媒体可用状态">
+          <strong>{detail.transcript ? '仅文稿可用，无法播放/抽帧' : '暂无音视频，无法播放/抽帧'}</strong>
+          <p>{detail.source_url ? '在「文案提取」选择「音视频」并勾选「保留音视频」，重新粘贴原作品链接，点击「抓取」后开始任务。也可先在「Codex 连接」启用视频缓存，再重新抓取。' : '如需播放或抽帧，请在「文案提取」导入对应的音视频。'}{detail.transcript && '文稿仍可通过「复制到 Codex」继续处理。'}</p>
+          <div><Button disabled={dirty || saving} onClick={() => navigate('extract')}>{detail.source_url ? '查看下载选项' : '导入音视频'}</Button>{detail.source_url && <Button disabled={dirty || saving} onClick={() => navigate('codex')}>Codex 缓存设置</Button>}</div>
+        </div>}
         {tab === 'check' ? <DocumentReview item={detail} items={state.items} settings={state.settings} notify={notify} updated={restored} locate={locateIssue} configure={() => navigate('models')}/> : tab === 'text' ? detail.transcript || dirty ? segments.length > 0 && detail.media_path && !editingText ?
           <div className="synced-transcript" aria-label="同步字幕">{segments.map((segment, index) =>
             <button ref={node => { syncedLines.current[index] = node; }} className={`synced-line ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''} ${index === reviewTarget ? 'review-target' : ''}`} aria-current={index === activeSegment ? 'true' : undefined} title={`跳转到 ${duration(segment.start)}`} onClick={() => { setReviewTarget(null); playSegment(index); }} key={`${segment.start}-${index}`}><span>{duration(segment.start)}</span><strong>{segment.text}</strong></button>

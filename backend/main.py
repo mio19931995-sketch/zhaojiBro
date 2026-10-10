@@ -254,10 +254,14 @@ def retranscribe(item_id: str):
         if not item['media_path'] and not item['source_url']:
             raise ValueError('没有可重新转录的音视频素材')
         metadata = dict(item['metadata'])
+        if (metadata.get('download_only') or metadata.get('action') == 'assets') and item['media_path']:
+            # A completed download is retained material, not a new temporary download.
+            metadata['options'] = metadata.get('options', {}) | {'keep': True}
+        metadata.update(download_only=False, action='transcribe')
         metadata.pop('detected_language', None)
         metadata.pop('transcript_source', None)
         store.update_with_snapshot(item_id, '重新转录前', transcript='', segments=[], status='idle', progress=0,
-                                   phase='等待重新转录', error='', metadata=metadata)
+                                   phase='等待重新转录' if item['transcript'] else '等待转录', error='', metadata=metadata)
         engine.enqueue(item_id)
     return {'ok': True}
 
