@@ -1,6 +1,6 @@
 {
   "name": "lulu-workbench",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Windows 本地内容工作台，独立实现 Lulu 的核心工作流",
   "main": "electron/main.cjs",
@@ -9,7 +9,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "start": "electron .",
-    "test:ui": "node tests/ui.mjs"
+    "test:ui": "node tests/creator-workflow.mjs",
+    "test:desktop": "node tests/upstream-workflow.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

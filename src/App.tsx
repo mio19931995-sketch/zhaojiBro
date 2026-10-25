@@ -3,22 +3,27 @@ import { Headphones, FileText, Stack, Microphone, List, User, Folder, PencilSimp
 import { api, duration, labels, preparePlatform } from './api';
 import type { Item, State } from './api';
 import { Button, Empty } from './components';
-import { Collect, Library, ProcessText, Voice, Clip, Models, Configuration } from './Panels';
+import { Collect, Library, Voice, Clip, Configuration } from './Panels';
+import { Models } from './Models';
 import { FeishuExportHost } from './Feishu';
 import { DownloadOptions, initialOptions } from './DownloadOptions';
 import type { Options } from './DownloadOptions';
 import { Inspector } from './Inspector';
 import { TrashView } from './Recovery';
 import { CodexConnection } from './CodexConnection';
+import { LiveWorkspace } from './LiveWorkspace';
+import { AIWorkbench } from './AIWorkbench';
 
 const NAV = [
-  { group: '工作台', items: [['extract','文案提取',Headphones],['process','文案处理',FileText],['outputs','内容输出',Stack],['voice','文案配音',Microphone],['clip','直播切片',Scissors],['collect','主页采集',User]] },
-  { group: '素材库', items: [['library','文稿库',Folder],['output-library','输出库',PencilSimple],['voice-library','音频库',Waveform],['clip-library','切片库',List],['trash','回收站',Trash]] },
-  { group: '配置', items: [['models','AI 大模型',Cube],['codex','Codex 连接',Link],['obsidian','Obsidian 知识库',BookOpen],['feishu','飞书知识库',CloudArrowUp]] },
+  { group: '工作台', items: [['extract','文案提取',Headphones],['collect','主页采集',User],['live','直播录制',Record],['process','文案处理',FileText]] },
+  { group: '素材库', items: [['library','文稿库',Folder],['output-library','输出库',PencilSimple],['voice-library','音频库',Waveform],['trash','回收站',Trash]] },
+  { group: '配置与连接', items: [['models','AI 大模型',Cube],['codex','Codex 连接',Link],['obsidian','Obsidian 知识库',BookOpen],['feishu','飞书知识库',CloudArrowUp]] },
 ] as const;
+const TOOLS = [['voice','文案配音',Microphone],['clip','直播切片',Scissors],['clip-library','切片库',List]] as const;
 const TITLES: Record<string, [string, string]> = {
   extract: ['文案提取', '拖入音视频或粘贴作品链接，提取文案与作品信息。'],
-  process: ['文案处理', '整理逐字稿，让观点更清楚，让文案更好用。'],
+  process: ['AI 文稿工作区', '原文与助手并排，先看建议，再决定如何保存。'],
+  live: ['直播录制', '关注开播状态，保存直播画面、分段与互动记录。'],
   outputs: ['内容输出', '在这里查看、编辑和导出处理后的文稿。'],
   voice: ['文案配音', '使用 Windows 本地语音，把文稿变成声音。'],
   clip: ['直播切片', '导入直播录播或本地素材，按起止时间保存片段。'],
@@ -64,13 +69,14 @@ export default function App() {
   const select = (id: string) => { setSelected(id); setInspector(true); };
   const shared: Shared = { state, refresh, notify, select, selected, processingSource, navigate };
   const model = state.models.find(m => m.id === state.settings.model);
-  const showInspector = inspector && !['settings', 'models', 'codex', 'feishu', 'obsidian', 'trash'].includes(page) && (page !== 'collect' || !!selected);
+  const showInspector = inspector && !['settings', 'models', 'codex', 'feishu', 'obsidian', 'trash', 'live', 'process'].includes(page) && (page !== 'collect' || !!selected);
   const current = state.items.find(i => i.id === selected);
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="sidebar-tools"><Button title="设置" onClick={() => navigate('settings')}><GearSix size={17}/></Button><span>LULU</span></div>
       <button className="brand" aria-label="返回文案提取" onClick={() => navigate('extract')}><img src="/app-icon.svg" alt="Lulu"/><span>Lulu<span className="brand-sub">内容工作台</span></span></button>
       <nav aria-label="主导航">{NAV.map(group => <div className="nav-group" key={group.group}><div className="nav-label">{group.group}</div>{group.items.map(([id, label, Icon]) => <button key={id} className={`nav-item ${page === id ? 'active' : ''}`} onClick={() => navigate(id)}><Icon size={18}/><span>{label}</span>{id === 'extract' && state.items.some(i => i.status === 'processing') && <span className="nav-dot"/>}</button>)}</div>)}</nav>
+      <details className="creation-tools" open={TOOLS.some(([id]) => id === page) || undefined}><summary>配音与切片</summary>{TOOLS.map(([id,label,Icon]) => <button className={`nav-item ${page === id ? 'active' : ''}`} key={id} onClick={() => navigate(id)}><Icon size={18}/>{label}</button>)}</details>
       <button className="model-status" onClick={() => navigate('models')}><Cube size={19}/><span><strong>{model?.name || '本地转录模型'}</strong><small><i className={model?.installed ? 'ready-dot' : 'wait-dot'}/>{model?.installed ? '本地模型 · 已就绪' : '安装模型后开始转录'}</small></span><CaretRight size={13}/></button>
     </aside>
     <div className="app-main">
@@ -80,7 +86,8 @@ export default function App() {
           {page === 'extract' && <Extract {...shared}/>}
           {page === 'collect' && <Collect {...shared}/>}
           {['library','outputs','output-library','voice-library','clip-library'].includes(page) && <Library {...shared} page={page}/>}
-          {page === 'process' && <ProcessText key={processingSource || 'manual'} {...shared}/>}
+          {page === 'process' && <AIWorkbench key={processingSource || 'manual'} {...shared}/>}
+          {page === 'live' && <LiveWorkspace {...shared}/>}
           {page === 'voice' && <Voice {...shared}/>}
           {page === 'clip' && <Clip {...shared}/>}
           {page === 'trash' && <TrashView {...shared}/>}

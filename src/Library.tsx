@@ -16,8 +16,9 @@ export function Library({state,page,select,selected,notify,refresh}:Shared&{page
   const items=all.filter(i=>(folder==='全部文件夹'||i.folder===folder)&&(!search||searchIds?.includes(i.id)));
   const visible=folders.filter(f=>!collapsed.includes(f)).flatMap(f=>items.filter(i=>i.folder===f));
   const ids=checked.filter(id=>visible.some(i=>i.id===id));
+  const searchRevision=state.items.map(i=>`${i.id}:${i.updated_at}`).join('|');
   useEffect(()=>{setChecked([]);anchor.current='';},[search,folder,kind]);
-  useEffect(()=>{if(!search){setSearchIds(null);return;}let valid=true;const t=setTimeout(()=>api<{ids:string[]}>('/library/search?q='+encodeURIComponent(search)).then(r=>{if(valid)setSearchIds(r.ids);}).catch(e=>notify(e.message,true)),180);return()=>{valid=false;clearTimeout(t);};},[search,state.items.length,notify]);
+  useEffect(()=>{if(!search){setSearchIds(null);return;}let valid=true;const t=setTimeout(()=>api<{ids:string[]}>('/library/search?q='+encodeURIComponent(search)).then(r=>{if(valid)setSearchIds(r.ids);}).catch(e=>notify(e.message,true)),180);return()=>{valid=false;clearTimeout(t);};},[search,searchRevision,notify]);
   function toggle(id:string,shift=false){let next=[id];if(shift&&anchor.current){const a=visible.findIndex(i=>i.id===anchor.current),b=visible.findIndex(i=>i.id===id);if(a>=0&&b>=0)next=visible.slice(Math.min(a,b),Math.max(a,b)+1).map(i=>i.id);}setChecked(prev=>shift?[...new Set([...prev,...next])]:prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);anchor.current=id;}
   function toggleGroup(list:Item[]){setChecked(prev=>list.every(i=>prev.includes(i.id))?prev.filter(id=>!list.some(i=>i.id===id)):[...new Set([...prev,...list.map(i=>i.id)])]);}
   async function create(){try{const item=await api<Item>('/documents','POST',{title:title.trim()||'未命名文稿',text,folder:folder==='全部文件夹'?'根目录':folder});setCreating(false);setTitle('');setText('');await refresh();select(item.id);notify('文稿已保存');}catch(e){notify((e as Error).message,true);}}

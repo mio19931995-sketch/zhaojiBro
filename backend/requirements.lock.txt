@@ -14,6 +14,9 @@ certifi==2026.7.22
     # via
     #   httpcore
     #   httpx
+    #   requests
+charset-normalizer==3.5.2
+    # via requests
 click==8.5.0
     # via
     #   huggingface-hub
@@ -54,6 +57,7 @@ idna==3.19
     # via
     #   anyio
     #   httpx
+    #   requests
 iniconfig==2.3.0
     # via pytest
 numpy==2.5.2
@@ -87,6 +91,8 @@ pyyaml==6.0.3
     # via
     #   ctranslate2
     #   huggingface-hub
+requests==2.34.2
+    # via -r backend/requirements.txt
 starlette==1.6.0
     # via fastapi
 tokenizers==0.23.1
@@ -95,6 +101,10 @@ tqdm==4.70.0
     # via
     #   faster-whisper
     #   huggingface-hub
+transcribe-cpp==0.4.0
+    # via -r backend/requirements.txt
+transcribe-cpp-native==0.4.0
+    # via transcribe-cpp
 typing-extensions==4.16.0
     # via
     #   anyio
@@ -108,7 +118,11 @@ typing-inspection==0.4.4
     # via
     #   fastapi
     #   pydantic
+urllib3==2.8.0
+    # via requests
 uvicorn==0.52.4
+    # via -r backend/requirements.txt
+websocket-client==1.9.2
     # via -r backend/requirements.txt
 yt-dlp==2026.8.19
     # via -r backend/requirements.txt

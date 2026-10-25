@@ -274,6 +274,7 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
         <label>倍速<select aria-label="播放速度" value={speed} onChange={e => { const value = Number(e.target.value); setSpeed(value); if (player.current) player.current.playbackRate = value; }}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map(value => <option key={value} value={value}>{value}×</option>)}</select></label>
       </div>}
       {editingText && timed && <p className="caption-edit-hint">一行对应一句字幕，校正文字时保留换行即可保留时间轴。增删句子或大幅改写请另存口播稿。</p>}
+      {detail.metadata.asr?.timestamp_kind === 'none' && <p className="caption-edit-hint">当前模型生成纯文稿，未提供字幕时间轴。需要跟随高亮或导出 SRT 时，请选择支持时间轴的模型重新转录。</p>}
       <div className="document-body" ref={documentBody} onWheel={stopFollowing} onTouchMove={stopFollowing}
         onPointerDown={e => { if (e.target === e.currentTarget) stopFollowing(); }}
         onKeyDown={e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) stopFollowing(); }}>
@@ -284,12 +285,12 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
         </div>}
         {tab === 'check' ? <DocumentReview item={detail} items={state.items} settings={state.settings} notify={notify} updated={restored} locate={locateIssue} configure={() => navigate('models')}/> : tab === 'text' ? detail.transcript || dirty ? segments.length > 0 && detail.media_path && !editingText ?
           <div className="synced-transcript" aria-label="同步字幕">{segments.map((segment, index) =>
-            <button ref={node => { syncedLines.current[index] = node; }} className={`synced-line ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''} ${index === reviewTarget ? 'review-target' : ''}`} aria-current={index === activeSegment ? 'true' : undefined} title={`跳转到 ${duration(segment.start)}`} onClick={() => { setReviewTarget(null); playSegment(index); }} key={`${segment.start}-${index}`}><span>{duration(segment.start)}</span><strong>{segment.text}</strong></button>
+            <button ref={node => { syncedLines.current[index] = node; }} className={`synced-line ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''} ${index === reviewTarget ? 'review-target' : ''}`} aria-current={index === activeSegment ? 'true' : undefined} title={`跳转到 ${duration(segment.start)}`} onClick={() => { setReviewTarget(null); playSegment(index); }} key={`${segment.start}-${index}`}><span>{duration(segment.start)}</span><strong>{segment.speaker_id != null && <small className="speaker-label">发言人 {segment.speaker_id}</small>}{segment.text}</strong></button>
           )}</div> : <textarea ref={textArea} aria-label="文稿正文" value={draft} readOnly={active || saving} onChange={e => editText(e.target.value)} spellCheck={false}/> :
           <Empty icon={<FileText size={26}/>} title={active ? '正在生成文稿' : '还没有文稿'} text={active ? '识别出的文字会持续出现在这里。' : '开始转录后，在这里查看和编辑全文。'}/> :
           tab === 'timeline' ? segments.length ? <div className="segments">{segments.map((segment, index) =>
             <div ref={node => { timelineLines.current[index] = node; }} className={`segment ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''}`} key={index}>
-              <button title="播放这一段" onClick={() => playSegment(index)}>{duration(segment.start)}</button>
+              <button title="播放这一段" onClick={() => playSegment(index)}>{duration(segment.start)}{segment.speaker_id != null && <small className="speaker-label">发言人 {segment.speaker_id}</small>}</button>
               <textarea aria-label={`第 ${index + 1} 段字幕`} readOnly={active || saving} value={segment.text} onFocus={stopFollowing} onChange={e => editSegments(segments.map((s, i) => i === index ? { ...s, text: e.target.value } : s))}/>
             </div>
           )}</div> : <Empty icon={<List size={26}/>} title="没有时间戳" text="转录音视频或导入 SRT 后，可以按段编辑和定位播放。"/> :

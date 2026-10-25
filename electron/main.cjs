@@ -110,7 +110,8 @@ app.on('before-quit', event => {
   app.isQuitting = true;
   (async () => {
     try { await fetch(baseURL + '/api/shutdown', { method: 'POST', headers: { 'X-Lulu-Client': 'desktop', 'X-Lulu-Shutdown': shutdownToken }, signal: AbortSignal.timeout(2500) }); } catch {}
-    await Promise.race([new Promise(resolve => backend.once('exit', resolve)), new Promise(resolve => setTimeout(resolve, 3000))]);
+    // Allow live recording workers to close their segments before terminating the owned tree.
+    await Promise.race([new Promise(resolve => backend.once('exit', resolve)), new Promise(resolve => setTimeout(resolve, 20000))]);
     if (backend.exitCode === null) {
       // Windows venv launchers can have a child interpreter. Only this owned process tree is stopped.
       const killer = spawn('taskkill.exe', ['/PID', String(backend.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });

@@ -56,7 +56,7 @@ try {
   await page.getByText(/已检查 101 段/).waitFor();
   await page.getByRole('button', { name: '关闭预览', exact: true }).click();
   await page.getByRole('button', { name: 'AI 大模型', exact: true }).click();
-  await page.getByRole('button', { name: 'Jev 内容检查', exact: true }).click();
+  await page.getByRole('tab', { name: 'JEV 内容检查', exact: true }).click();
   await page.getByRole('heading', { name: 'Jev 创作检查助手' }).waitFor();
   assert.equal(await page.locator('input[type=password]').inputValue(), '');
   assert.deepEqual(errors, []);
