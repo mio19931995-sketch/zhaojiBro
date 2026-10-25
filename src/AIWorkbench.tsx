@@ -4,13 +4,17 @@ import type { Shared } from './App';
 import { api } from './api';
 import { Button, Empty } from './components';
 import { readDraft } from './drafts';
+import { ProposalDialog, ReferenceChips, ReferencePicker, ReferencePreview } from './AIAgentTools';
+import { locateRange, rangeText, selectedRange } from './aiWorkspaceTypes';
+import type { Message, Reference, Run, TargetRange, TextRange, Workspace } from './aiWorkspaceTypes';
 import './ai-workbench.css';
 
-type Message = { id: string; role: 'user' | 'assistant'; text: string; run_id: string };
-type Run = { id: string; status: string; phase: string; instruction: string; preset: string; current: number; total: number; result: string; error: string; model: string; saved_output_id: string; applied: boolean };
-type Workspace = { id: string; source_id: string; source_hash: string; title: string; text: string; instruction?: string; preset?: string; revision: number; messages: Message[]; run_id: string; run?: Run | null };
 type Session = { id: string; title: string; updated_at: number };
 type Preset = { id: string; title: string; instruction: string };
+
+function storedTarget(id: string): TargetRange | null {
+  try { const value = JSON.parse(localStorage.getItem(`ai-target-${id}`) || 'null'); return value && typeof value.text === 'string' && Number.isInteger(value.revision) && value.offset_unit === 'utf8' ? value : null; } catch { return null; }
+}
 
 export function AIWorkbench({ state, processingSource, navigate, notify, refresh, select }: Shared) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -25,26 +29,41 @@ export function AIWorkbench({ state, processingSource, navigate, notify, refresh
   const [loadError, setLoadError] = useState('');
   const [retryLoad, setRetryLoad] = useState(0);
   const [preview, setPreview] = useState<Message | null>(null);
+  const [selection, setSelection] = useState<(TextRange & { basis: string }) | null>(null);
+  const [target, setTarget] = useState<TargetRange | null>(null);
+  const [referencePicker, setReferencePicker] = useState(false);
+  const [referencePreview, setReferencePreview] = useState<Reference | null>(null);
+  const [proposalRun, setProposalRun] = useState('');
   const current = useRef<Workspace | null>(null);
   const draft = useRef({ title: '新文稿', text: '', instruction: '', preset: '' });
   const saved = useRef({ title: '', text: '', instruction: '', preset: '' });
   const writes = useRef<Promise<void>>(Promise.resolve());
+  const pollVersion = useRef(0);
   const alive = useRef(true);
   const conversation = useRef<HTMLDivElement>(null);
+  const editor = useRef<HTMLTextAreaElement>(null);
   draft.current = { title, text, instruction, preset };
   const source = workspace?.source_id || processingSource;
   const run = workspace?.run;
   const active = !!run && ['queued', 'running'].includes(run.status);
   const dirty = title !== saved.current.title || text !== saved.current.text || instruction !== saved.current.instruction || preset !== saved.current.preset;
   const draftLabel = dirty && draftStatus === '草稿已保存' ? '等待保存…' : draftStatus;
+  const staleTarget = !!target && (target.revision !== workspace?.revision || text !== saved.current.text || title !== saved.current.title);
+
+  function changeTarget(value: TargetRange | null) {
+    setTarget(value);
+    if (current.current) { try { if (value) localStorage.setItem(`ai-target-${current.current.id}`, JSON.stringify(value)); else localStorage.removeItem(`ai-target-${current.current.id}`); } catch {} }
+  }
 
   const load = useCallback((value: Workspace) => {
+    pollVersion.current++;
     current.current = value;
     saved.current = { title: value.title, text: value.text, instruction: value.instruction || '', preset: value.preset || '' };
     draft.current = saved.current;
     setWorkspace(value); setText(value.text); setTitle(value.title); setPreview(null);
     setInstruction(value.instruction || ''); setPreset(value.preset || '');
     setDraftStatus('草稿已保存'); setLoadError('');
+    setSelection(null); setTarget(storedTarget(value.id));
   }, []);
 
   const persist = useCallback(async () => {
@@ -57,7 +76,13 @@ export function AIWorkbench({ state, processingSource, navigate, notify, refresh
       if (alive.current) setDraftStatus('正在保存草稿…');
       try {
         if (value.title !== saved.current.title || value.text !== saved.current.text) {
-          const result = await api<{ revision: number }>(`/ai/workspaces/${owner.id}/draft`, 'PUT', { title: value.title.trim() || '新文稿', text: value.text, revision: current.current.revision });
+          const result = await api<{ revision: number; text?: string; title?: string }>(`/ai/workspaces/${owner.id}/draft`, 'PUT', { title: value.title.trim() || '新文稿', text: value.text, revision: current.current.revision });
+          const canonicalText = result.text ?? value.text, canonicalTitle = result.title ?? value.title;
+          // Canonical simplification must not leave browser byte ranges pointing at the pre-save text.
+          // Do not overwrite characters typed while this save was in flight.
+          if (alive.current && draft.current.text === value.text && canonicalText !== value.text) { draft.current.text = canonicalText; setText(canonicalText); setSelection(null); }
+          if (alive.current && draft.current.title === value.title && canonicalTitle !== value.title) { draft.current.title = canonicalTitle; setTitle(canonicalTitle); }
+          value.text = canonicalText; value.title = canonicalTitle;
           current.current = { ...current.current, title: value.title, text: value.text, revision: result.revision };
           saved.current = { ...saved.current, title: value.title, text: value.text };
           if (alive.current) setWorkspace(previous => previous?.id === owner.id ? { ...previous, revision: result.revision } : previous);
@@ -109,10 +134,12 @@ export function AIWorkbench({ state, processingSource, navigate, notify, refresh
     if (!workspace?.id) return;
     let cancelled = false;
     const timer = setInterval(async () => {
+      const generation = pollVersion.current;
       try {
         const value = await api<Workspace>(`/ai/workspaces/${workspace.id}`);
-        if (cancelled || current.current?.id !== value.id) return;
-        setWorkspace(previous => previous ? { ...previous, messages: value.messages, run: value.run, run_id: value.run_id } : previous);
+        if (cancelled || current.current?.id !== value.id || generation !== pollVersion.current) return;
+        current.current = { ...current.current!, references: value.references, messages: value.messages, run: value.run, run_id: value.run_id };
+        setWorkspace(previous => previous ? { ...previous, references: value.references, messages: value.messages, run: value.run, run_id: value.run_id } : previous);
       } catch {}
     }, active ? 650 : 2000);
     return () => { cancelled = true; clearInterval(timer); };
@@ -145,12 +172,13 @@ export function AIWorkbench({ state, processingSource, navigate, notify, refresh
       } else navigate('process', id);
     } catch (error) { notify((error as Error).message, true); } finally { setBusy(false); }
   }
-  async function send(value = instruction, selectedPreset = preset) {
+  async function send(value = instruction, selectedPreset = preset, retry?: Run) {
     if (!value.trim() || !workspace) return;
     setBusy(true);
     try {
       await persist();
-      await api(`/ai/workspaces/${workspace.id}/runs`, 'POST', { revision: current.current!.revision, instruction: value, preset: selectedPreset });
+      if (!retry && target && (target.revision !== current.current!.revision || rangeText(current.current!.text, target) !== target.text)) throw Error('选中片段的文稿版本已变化，请重新选择，或点击“处理全文”。');
+      await api(`/ai/workspaces/${workspace.id}/runs`, 'POST', { revision: current.current!.revision, instruction: value, preset: selectedPreset, selection: retry ? retry.selection : target, reference_ids: (retry ? retry.references || [] : current.current!.references || []).map(reference => reference.id), ...(retry ? { retry_of: retry.id } : {}) });
       const update = await api<Workspace>(`/ai/workspaces/${workspace.id}`);
       setWorkspace(previous => previous ? { ...previous, messages: update.messages, run: update.run, run_id: update.run_id } : previous);
       setInstruction(''); setPreset(''); setPreview(null);
@@ -186,13 +214,61 @@ export function AIWorkbench({ state, processingSource, navigate, notify, refresh
     } catch (error) { notify((error as Error).message, true); } finally { setBusy(false); }
   }
 
+  async function useSelection() {
+    if (!selection) return;
+    setBusy(true);
+    try {
+      await persist();
+      if (selection.basis !== current.current!.text || rangeText(current.current!.text, selection) !== selection.text) throw Error('正文已变化或已转为简体，请重新选择片段。');
+      changeTarget({ start: selection.start, end: selection.end, text: selection.text, offset_unit: 'utf8', revision: current.current!.revision });
+    } catch (error) { notify((error as Error).message, true); } finally { setBusy(false); }
+  }
+  async function addReference(id: string, range?: TextRange) {
+    pollVersion.current++;
+    setBusy(true);
+    try {
+      await persist();
+      if (!id && selection?.basis !== current.current!.text) throw Error('正文已变化或已转为简体，请重新选择引用。');
+      const result = await api<{ workspace: Workspace }>(`/ai/workspaces/${current.current!.id}/references`, 'POST', { revision: current.current!.revision, source_id: id, ...(range ? { start: range.start, end: range.end, expected_text: range.text, offset_unit: 'utf8' } : {}) });
+      current.current = { ...current.current!, references: result.workspace.references };
+      setWorkspace(previous => previous ? { ...previous, references: result.workspace.references } : previous);
+      notify('已添加只读参考；发送时会一起交给模型');
+    } finally { pollVersion.current++; setBusy(false); }
+  }
+  async function removeReference(reference: Reference) {
+    if (!workspace) return;
+    pollVersion.current++;
+    setBusy(true);
+    try {
+      const result = await api<{ workspace: Workspace }>(`/ai/workspaces/${workspace.id}/references/${reference.id}`, 'DELETE');
+      current.current = { ...current.current!, references: result.workspace.references };
+      setWorkspace(previous => previous ? { ...previous, references: result.workspace.references } : previous);
+    } catch (error) { notify((error as Error).message, true); } finally { pollVersion.current++; setBusy(false); }
+  }
+  async function proposalAction(id: string, action: 'accept' | 'dismiss' | 'undo') {
+    if (!workspace || !proposalRun) return;
+    setBusy(true);
+    try {
+      await persist();
+      const result = await api<{ workspace: Workspace }>(`/ai/workspaces/${workspace.id}/results/${proposalRun}/${action === 'undo' ? 'undo' : `proposals/${id}/${action}`}`, 'POST', { revision: current.current!.revision });
+      load(result.workspace);
+      if (action !== 'dismiss') changeTarget(null);
+      notify(action === 'accept' ? '已采纳到草稿，确认后请保存文稿' : action === 'undo' ? '已撤销最近一次采纳' : '已忽略这条建议');
+    } finally { setBusy(false); }
+  }
+  function locate(reference: Reference) {
+    try { if (editor.current) locateRange(editor.current, reference); }
+    catch (error) { notify((error as Error).message, true); }
+  }
+
   if (loadError) return <section className="panel ai-load-error"><p>{loadError}</p><Button onClick={() => { setLoadError(''); setRetryLoad(value => value + 1); }}>重试打开</Button>{processingSource && <Button onClick={() => navigate('process', '')}>打开手动文稿</Button>}</section>;
   if (!workspace) return <section className="panel ai-load-error"><p>正在打开文稿工作区…</p></section>;
   return <section className="ai-workbench" aria-label="AI 文稿工作区">
     <div className="ai-document panel">
       <div className="ai-document-heading"><label>当前文稿<select aria-label="选择原文" value={source || ''} disabled={busy} onChange={event => chooseSource(event.target.value)}><option value="">手动输入文稿</option>{state.items.filter(item => item.has_transcript).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><Button disabled={busy || !text.trim()} onClick={saveDocument}><FloppyDisk size={15}/>{source ? '保存文稿' : '存为文稿'}</Button></div>
       <input className="ai-document-title" aria-label="文稿标题" value={title} maxLength={500} disabled={busy} onChange={event => setTitle(event.target.value)}/>
-      <textarea className="ai-document-editor" aria-label="待处理文案" placeholder="选择已有文稿，或粘贴需要处理的正文…" value={text} maxLength={150000} disabled={busy} onChange={event => setText(event.target.value)}/>
+      <div className="ai-selection-tools"><Button disabled={busy || active || !selection} onClick={useSelection}>仅处理选中片段</Button><Button disabled={busy || active || !selection || (workspace.references?.length || 0) >= 8} onClick={() => selection && addReference('', selection).catch(error => notify(error.message, true))}>引用选中片段</Button><span>{selection ? `已选 ${selection.text.length} 字` : '在正文中选择文字'}</span></div>
+      <textarea ref={editor} className="ai-document-editor" aria-label="待处理文案" placeholder="选择已有文稿，或粘贴需要处理的正文…" value={text} maxLength={150000} disabled={busy} onSelect={event => { const value = selectedRange(event.currentTarget); setSelection(value ? { ...value, basis: event.currentTarget.value } : null); }} onChange={event => { setText(event.target.value); setSelection(null); }}/>
       <div className="ai-document-status"><span>{text.length.toLocaleString()} 字</span><span className={draftStatus.includes('失败') ? 'inline-error' : ''}>{draftLabel}</span>{draftStatus.includes('失败') && <button onClick={() => persist().catch(error => notify(error.message, true))}>重试保存</button>}</div>
       <p className="ai-document-footnote">编辑先保存在工作区草稿；点击“保存文稿”后才更新来源。字幕段数变化时请另存结果。</p>
     </div>
@@ -202,11 +278,29 @@ export function AIWorkbench({ state, processingSource, navigate, notify, refresh
       <div className="ai-model-line"><span>{state.settings.llm_model || '尚未配置文本模型'}</span><button onClick={() => navigate('models')}>配置模型</button></div>
       <div className="ai-conversation" ref={conversation} aria-label="文稿助手对话">
         {!workspace.messages.length && <Empty icon={<ChatCircleText size={27}/>} title="先告诉我想怎么处理" text="校正、润色、摘要或拆解。结果先展示，是否写回由你决定。"/>}
-        {workspace.messages.map(message => <article key={message.id} className={`ai-message ${message.role}`}><span className="ai-message-label">{message.role === 'user' ? '你的要求' : '处理结果'}</span><div className="ai-message-text">{message.text}</div>{message.role === 'assistant' && <div className="ai-result-actions"><Button disabled={busy} onClick={() => setPreview(preview?.id === message.id ? null : message)}>对照原文</Button><Button disabled={busy} onClick={() => saveResult(message)}><FloppyDisk size={14}/>另存结果</Button><Button disabled={busy || !source || active} onClick={() => saveResult(message, true)}><Check size={14}/>应用到文稿</Button></div>}</article>)}
-        {run && <div className={`ai-run-status ${run.status === 'error' ? 'is-error' : ''}`} role="status"><span>{run.phase}</span>{active && <progress max={run.total || 1} value={Math.max(0, run.current - 1)}/>}<div>{active ? <Button onClick={cancel}><Stop size={13}/>取消处理</Button> : ['error', 'cancelled', 'interrupted'].includes(run.status) && <Button disabled={busy} onClick={() => send(run.instruction, run.preset)}><ArrowClockwise size={13}/>重试本次要求</Button>}</div></div>}
+        {workspace.messages.map(message => <article key={message.id} className={`ai-message ${message.role}`}>
+          <span className="ai-message-label">{message.role === 'user' ? '你的要求' : '处理结果'}{message.scope === 'selection' ? ' · 选中片段' : ''}</span><div className="ai-message-text">{message.text}</div>
+          {!!message.references?.length && <div className="ai-message-references">{message.references.map(reference => <button title={`查看引用：${reference.title}`} key={reference.id} onClick={() => setReferencePreview(reference)}>引用：{reference.title}</button>)}</div>}
+          {message.role === 'assistant' && <div className="ai-result-actions">
+            <Button disabled={busy || active} onClick={() => setProposalRun(message.run_id)}>逐项建议</Button>
+            <Button disabled={busy} onClick={() => setPreview(preview?.id === message.id ? null : message)}>对照原文</Button>
+            <Button disabled={busy} onClick={() => saveResult(message)}><FloppyDisk size={14}/>另存结果</Button>
+            {message.scope !== 'selection' && !(run?.id === message.run_id && run.proposal_used) && <Button disabled={busy || !source || active} onClick={() => saveResult(message, true)}><Check size={14}/>应用到文稿</Button>}
+          </div>}
+        </article>)}
+        {run && <div className={`ai-run-status ${run.status === 'error' ? 'is-error' : ''}`} role="status"><span>{run.phase}</span>{active && <progress max={run.total || 1} value={Math.max(0, run.current - 1)}/>}<div>{active ? <Button onClick={cancel}><Stop size={13}/>取消处理</Button> : ['error', 'cancelled', 'interrupted'].includes(run.status) && <Button disabled={busy} onClick={() => send(run.instruction, run.preset, run)}><ArrowClockwise size={13}/>重试本次要求</Button>}</div></div>}
       </div>
       {preview && <div className="ai-comparison" aria-label="原文结果对照"><div><strong>当前草稿</strong><pre>{text}</pre></div><div><strong>处理结果</strong><pre>{preview.text}</pre></div><button onClick={() => setPreview(null)}>收起对照</button></div>}
-      <div className="ai-composer"><div className="ai-presets">{presets.map(choice => <button disabled={busy || active} key={choice.id} onClick={() => { setInstruction(choice.instruction); setPreset(choice.id); }}>{choice.title}<ArrowRight size={12}/></button>)}</div><textarea aria-label="文稿处理要求" placeholder="例如：保留全部数据，把这份文稿改得更适合口播。" value={instruction} maxLength={4000} disabled={busy} onChange={event => { setInstruction(event.target.value); setPreset(''); }}/><div className="ai-send-row"><span>发送当前草稿与最近 10 条消息；长文完整分段处理。</span><Button primary disabled={busy || active || !text.trim() || !instruction.trim() || !state.settings.llm_model} onClick={() => send()}><PaperPlaneRight size={15}/>{busy ? '提交中…' : '发送'}</Button></div></div>
+      <div className="ai-composer">
+        <div className="ai-context-heading"><span>{target ? '修改范围：选中片段' : '修改范围：全文'} · 参考 {workspace.references?.length || 0}/8</span><Button disabled={busy || active || (workspace.references?.length || 0) >= 8} onClick={() => setReferencePicker(true)}>添加参考素材</Button></div>
+        {target && <div className={`ai-target-scope ${staleTarget ? 'stale' : ''}`} role="status"><span title={target.text}>{staleTarget ? '文稿已变化，请重新选取片段' : `仅处理：${target.text}`}</span><button disabled={busy || active} onClick={() => changeTarget(null)}>处理全文</button></div>}
+        <ReferenceChips references={workspace.references || []} busy={busy || active} preview={setReferencePreview} remove={removeReference}/>
+        <div className="ai-presets">{presets.map(choice => <button disabled={busy || active} key={choice.id} onClick={() => { setInstruction(choice.instruction); setPreset(choice.id); }}>{choice.title}<ArrowRight size={12}/></button>)}</div><textarea aria-label="文稿处理要求" placeholder="例如：保留全部数据，把这份文稿改得更适合口播。" value={instruction} maxLength={4000} disabled={busy} onChange={event => { setInstruction(event.target.value); setPreset(''); }}/><div className="ai-send-row"><span>发送{target ? '选中片段' : '当前草稿'}、参考素材与最近 10 条消息。</span><Button primary disabled={busy || active || staleTarget || (workspace.references || []).some(reference => reference.stale) || !text.trim() || !instruction.trim() || !state.settings.llm_model} onClick={() => send()}><PaperPlaneRight size={15}/>{busy ? '提交中…' : '发送'}</Button></div>
+        {(workspace.references || []).some(reference => reference.stale) && <small className="inline-error">引用已变化，请查看并重新添加，或移除后发送。</small>}
+      </div>
     </div>
+    {referencePicker && <ReferencePicker items={state.items} busy={busy} add={addReference} close={() => setReferencePicker(false)}/>}
+    {referencePreview && <ReferencePreview reference={referencePreview} locate={referencePreview.kind === 'draft' ? () => locate(referencePreview) : undefined} close={() => setReferencePreview(null)}/>}
+    {proposalRun && <ProposalDialog key={`${workspace.id}-${proposalRun}`} workspace={workspace} runId={proposalRun} busy={busy} apply={proposalAction} locate={proposal => { try { if (editor.current) locateRange(editor.current, { start: proposal.start, end: proposal.end, text: proposal.state === 'accepted' ? proposal.after : proposal.before, offset_unit: 'utf8' }); } catch (error) { notify((error as Error).message, true); } }} notify={notify} close={() => setProposalRun('')}/>}
   </section>;
 }

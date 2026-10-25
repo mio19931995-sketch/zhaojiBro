@@ -10,7 +10,8 @@
     "build": "tsc -b && vite build",
     "start": "electron .",
     "test:ui": "node tests/creator-workflow.mjs",
-    "test:desktop": "node tests/upstream-workflow.mjs"
+    "test:desktop": "node tests/upstream-workflow.mjs",
+    "test:agent": "node tests/agent-workflow.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
