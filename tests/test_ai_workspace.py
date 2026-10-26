@@ -59,7 +59,9 @@ def reply(monkeypatch, text):
 
 
 def send(client, work, revision=None):
-    result = client.post(f"/api/ai/workspaces/{work['id']}/runs", json={'revision': work['revision'] if revision is None else revision, 'instruction': '请校正全文', 'preset': 'correct'})
+    # These lifecycle tests intentionally return arbitrary replacement drafts;
+    # strict correction has its own preservation and rejection fixtures.
+    result = client.post(f"/api/ai/workspaces/{work['id']}/runs", json={'revision': work['revision'] if revision is None else revision, 'instruction': '请润色全文', 'preset': 'polish'})
     assert result.status_code == 200, result.text
     return result.json()
 

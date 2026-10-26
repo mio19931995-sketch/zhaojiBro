@@ -17,7 +17,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from . import store, engine, integrations, ai_edits, ai_context, ai_runtime
+from . import store, engine, integrations, ai_edits, ai_context, ai_runtime, ai_proofreading
 
 router = APIRouter(prefix='/api/ai')
 lock = threading.RLock()
@@ -325,6 +325,9 @@ async def send(workspace_id: str, body: Send):
                'agent_config': ai_context.config(workspace), 'agent_config_revision': workspace.get('agent_config_revision', 0),
                'skill': explicit, 'explicit_skill': explicit, 'skill_entries': skills['entries'],
                'loaded_skills': [], 'discovered_documents': []}
+        if ai_proofreading.enabled(run):
+            ai_proofreading.check_input(input_text)
+            run['proofreading_check'] = {'state': 'checking'}
         workspace['run_id'] = run_id
         workspace['messages'].append({'id': uuid.uuid4().hex, 'role': 'user', 'text': body.instruction,
                                       'run_id': run_id, 'scope': run['scope'], 'selection': selection,

@@ -42,7 +42,8 @@ tools = document('工具调用演示', '工具可以查找参考资料，这篇�
 reference = document('可检索参考资料', '可检索参考：产品重量120克，价格199元。')
 skill = document('技能方法演示', '使用指定技能核对价格199元，不自动保存来源。')
 brand = document('品牌翻译演示', '松果X1重120克。米家 Pro售价299元。松果X1将于11月2日发布。')
-values = {'context': context, 'manual': manual, 'tools': tools, 'reference': reference, 'skill': skill, 'brand': brand}
-for name in ('context', 'manual', 'tools', 'skill', 'brand'):
+proof = document('严格校对演示', '这是产品测式文稿，售价199元。详情：https://example.test/product?id=199。')
+values = {'context': context, 'manual': manual, 'tools': tools, 'reference': reference, 'skill': skill, 'brand': brand, 'proof': proof}
+for name in ('context', 'manual', 'tools', 'skill', 'brand', 'proof'):
     values[name]['workspace_id'] = conversation(values[name], name in ('context', 'manual'))['id']
 print(json.dumps(values, ensure_ascii=False))

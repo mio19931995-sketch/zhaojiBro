@@ -39,7 +39,8 @@ def run_command(args, **kwargs):
 
 
 def to_simplified(text):
-    return simplifier.convert(text) if text else text
+    from .ai_proofreading import preserve_urls
+    return preserve_urls(text, simplifier.convert) if text else text
 
 
 def simplify_with_brands(text, terms=()):

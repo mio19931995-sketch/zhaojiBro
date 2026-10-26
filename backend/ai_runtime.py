@@ -7,7 +7,7 @@ import uuid
 
 import httpx
 
-from . import ai_context, ai_edits, ai_translation, engine, integrations, store
+from . import ai_context, ai_edits, ai_translation, ai_proofreading, engine, integrations, store
 
 MAX_STEPS = 8
 
@@ -210,6 +210,31 @@ async def prepare_translation(run_id, client, base, headers, model):
     return guard, width
 
 
+def activate_proofreading(run_id, extra_skills=()):
+    run = store.object_get('ai_run', run_id)
+    if ai_proofreading.enabled(run, extra_skills):
+        ai_proofreading.check_input(run['input_text'])
+        if not run.get('proofreading_check'):
+            run = update(run_id, proofreading_check={'state': 'checking'})
+        if any(e['name'] == 'lulu-proofread' for e in run['skill_entries']) and 'lulu-proofread' not in run['loaded_skills']:
+            run = update(run_id, loaded_skills=[*run['loaded_skills'], 'lulu-proofread'])
+    return run
+
+
+def check_proofreading(run_id, original, result, final=False):
+    run = store.object_get('ai_run', run_id)
+    if ai_proofreading.enabled(run):
+        try:
+            report = ai_proofreading.validate(original, result, engine.to_simplified)
+        except ai_proofreading.Rejected as exc:
+            update(run_id, rejected_result=result, proofreading_check={**exc.report,
+                   'part': 0 if final else run.get('current', 1), 'total': run.get('total', 1)})
+            raise
+        if final:
+            update(run_id, proofreading_check=report)
+    return result
+
+
 async def process_part(run_id, client, base, headers, model, messages, schemas, compact_prefix=None,
                        brand_lock=None, original_part='', late_protect=None):
     from . import ai_skills, ai_tools
@@ -223,11 +248,14 @@ async def process_part(run_id, client, base, headers, model, messages, schemas, 
     while True:
         if not alive(run_id):
             raise asyncio.CancelledError()
+        run = activate_proofreading(run_id)
         ai_skills.validate_loaded(run)
         if brand_lock is None and 'lulu-translate' in run.get('loaded_skills', []) and late_protect:
             brand_lock = await late_protect()
             run = store.object_get('ai_run', run_id)
         wire = brand_lock.messages(local, repair) if brand_lock else local
+        if ai_proofreading.enabled(run):
+            wire = [{**wire[0], 'content': wire[0]['content'] + ai_proofreading.SYSTEM}, *wire[1:]]
         if (run['agent_config']['auto_compact'] and compact_prefix is not None
                 and ai_context.estimate(wire) + ai_context.estimate(schemas) >= ai_context.limits(run['agent_config'])[1]):
             replacement = await compact_prefix()
@@ -238,6 +266,8 @@ async def process_part(run_id, client, base, headers, model, messages, schemas, 
                 run = store.object_get('ai_run', run_id)
                 ai_skills.validate_loaded(run)
                 wire = brand_lock.messages(local, repair) if brand_lock else local
+                if ai_proofreading.enabled(run):
+                    wire = [{**wire[0], 'content': wire[0]['content'] + ai_proofreading.SYSTEM}, *wire[1:]]
         if ai_context.estimate(wire) + ai_context.estimate(schemas) > ai_context.limits(run['agent_config'])[0]:
             raise ValueError('当前文稿、工具结果和必要上下文超过模型容量，请缩小片段或增加上下文容量；内容未截断')
         if not schemas:
@@ -246,13 +276,14 @@ async def process_part(run_id, client, base, headers, model, messages, schemas, 
             if not alive(run_id):
                 raise asyncio.CancelledError()
             try:
-                return brand_lock.restore(result, original_part, engine.to_simplified) if brand_lock else engine.to_simplified(result)
+                result = brand_lock.restore(result, original_part, engine.to_simplified) if brand_lock else engine.to_simplified(result)
             except ValueError:
                 if repair:
                     raise
                 repair = True
                 update(run_id, phase='模型改动了品牌名，正在重新翻译（1/1）')
                 continue
+            return check_proofreading(run_id, original_part, result)
         response = await request_tools(client, base, headers, model, wire, schemas, ai_context.output_limit(run['agent_config']))
         ai_skills.validate_loaded(run)
         if not alive(run_id):
@@ -261,13 +292,14 @@ async def process_part(run_id, client, base, headers, model, messages, schemas, 
             if not response['content'].strip():
                 raise ValueError('模型没有返回有效正文，请检查模型兼容性')
             try:
-                return brand_lock.restore(response['content'], original_part, engine.to_simplified) if brand_lock else engine.to_simplified(response['content'])
+                result = brand_lock.restore(response['content'], original_part, engine.to_simplified) if brand_lock else engine.to_simplified(response['content'])
             except ValueError:
                 if repair:
                     raise
                 repair = True
                 update(run_id, phase='模型改动了品牌名，正在重新翻译（1/1）')
                 continue
+            return check_proofreading(run_id, original_part, result)
         calls = validate_calls(response['tool_calls'], run, used_ids)
         if brand_lock:
             try:
@@ -281,6 +313,15 @@ async def process_part(run_id, client, base, headers, model, messages, schemas, 
                 repair = True
                 update(run_id, phase='模型改动了品牌名，正在重新翻译（1/1）')
                 continue
+        # Inspect every candidate before executing any tool in the batch,
+        # including a batch that loads the proofreading skill and writes at once.
+        run = activate_proofreading(run_id, [c['arguments']['name'] for c in calls if c['name'] == 'load_skill'])
+        ai_skills.validate_loaded(run)
+        for call in calls:
+            if call['name'] == 'create_document':
+                check_proofreading(run_id, run['input_text'],
+                    engine.simplify_with_brands(call['arguments']['markdown'], run.get('translation_brands', [])), final=True)
+        run = store.object_get('ai_run', run_id)
         raw = {'role': 'assistant', 'content': response['content'] or None, 'tool_calls': response['tool_calls']}
         results, stop = [], False
         for call in calls:
@@ -347,7 +388,7 @@ async def run_job(run_id, base, headers, model, history):
                 brand_lock, width = await prepare_translation(run_id, client, base, headers, model)
                 parts = list(ai_translation.parts(run['input_text'], brand_lock.terms, width))
             else:
-                parts = list(integrations.chunks(run['input_text']))
+                parts = list(ai_proofreading.parts(run['input_text']) if ai_proofreading.enabled(run) else integrations.chunks(run['input_text']))
             async def late_protect():
                 nonlocal brand_lock
                 if brand_lock is None:
@@ -375,12 +416,16 @@ async def run_job(run_id, base, headers, model, history):
                                                   compact_prefix, brand_lock, part, late_protect))
                 if store.object_get('ai_run', run_id).get('non_edit_result'):
                     break
+            run = store.object_get('ai_run', run_id)
+            result = ai_proofreading.join_parts(parts, outputs) if ai_proofreading.enabled(run) and not run.get('non_edit_result') else '\n\n'.join(outputs)
+            if not run.get('non_edit_result'):
+                check_proofreading(run_id, run['input_text'], result, final=True)
             with ai.lock:
                 run = ai.get_run(run['workspace_id'], run_id)
                 if run['status'] not in ai.ACTIVE:
                     return
                 ai_skills.validate_loaded(run)
-                run.update(status='done', result='\n\n'.join(outputs), phase='处理完成，结果尚未写入文稿', finished_at=time.time())
+                run.update(status='done', result=result, phase='处理完成，结果尚未写入文稿', finished_at=time.time())
                 # Tool handoffs are conversation replies, not replacement manuscript text.
                 run['non_edit_result'] = run.get('non_edit_result', False) or any(event.get('state') in ('needs_input', 'pending') for event in run.get('events', []))
                 ai_edits.initialize_proposals(run)
