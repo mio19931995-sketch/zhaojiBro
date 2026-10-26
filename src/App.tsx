@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { clearAgentHandoff, peekAgentHandoff } from './agentHandoff';
 import { Headphones, FileText, Stack, Microphone, List, User, Folder, PencilSimple, Waveform, Scissors, Cube, GearSix, DownloadSimple, Link, Play, Pause, Check, X, SidebarSimple, ArrowClockwise, Trash, CaretRight, FileAudio, CircleNotch, BookOpen, CloudArrowUp, Record, Stop } from '@phosphor-icons/react';
 import { api, duration, labels, preparePlatform } from './api';
 import type { Item, State } from './api';
@@ -106,6 +107,7 @@ export default function App() {
 function Extract(props: Shared) {
   const { state, refresh, notify, select, navigate } = props;
   const [url, setUrl] = useState('');
+  useEffect(() => { const handoff = peekAgentHandoff('transcription'); if (handoff) { setUrl(handoff.url || ''); clearAgentHandoff(handoff.id); } }, []);
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
   const [filter, setFilter] = useState('all');

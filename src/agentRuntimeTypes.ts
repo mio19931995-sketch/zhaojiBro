@@ -1,0 +1,11 @@
+export type AgentConfig = { auto_compact: boolean; context_window: number; compact_threshold: number; tools_enabled: boolean; allowed_tools: string[] };
+export type ContextInfo = { estimate: number; input_limit: number; compact_at: number; percent: number; can_compact: boolean; estimated: boolean; history_messages?: number; total_messages?: number; checkpoint?: { summary: string | Record<string, string[]>; created_at?: number; through_message_id?: string } | null };
+export type SkillEntry = { name: string; title: string; description: string; installed: boolean; enabled: boolean; automatic: boolean; generation: string; digest: string; origin: string; config: { strict?: boolean; language?: string }; compatibility?: string };
+export type SkillDetail = SkillEntry & { content: string; files: { path: string; size: number }[]; version_id?: string; version_created_at?: number };
+export type SkillVersion = { id: string; name: string; title: string; created_at: number; digest: string };
+export type SkillPreview = { token: string; entry: SkillEntry; content: string; files: { path: string; size: number }[]; warnings: string[]; existing: boolean };
+export type AgentTool = { name: string; title: string; description: string; effect: 'read' | 'handoff' | 'confirm' };
+export type ToolResult = { state?: string; message?: string; action?: string; url?: string; limit?: number; text?: string; title?: string; document_id?: string; [key: string]: unknown };
+export type ToolEvent = { id?: string; kind?: string; tool?: string; name?: string; state?: string; status?: string; result?: ToolResult; error?: string; message?: string };
+export type AgentAction = { id: string; tool: string; state: 'pending' | 'confirmed' | 'dismissed'; label: string; preview: { title?: string; text?: string; name?: string; description?: string; token?: string; instructions?: string }; result?: ToolResult };
+export const defaultAgentConfig: AgentConfig = { auto_compact: true, context_window: 32768, compact_threshold: .75, tools_enabled: false, allowed_tools: [] };

@@ -5,6 +5,7 @@ import type { Item } from './api';
 import type { Shared } from './App';
 import { Button } from './components';
 import { readDraft, writeDraft } from './drafts';
+import { clearAgentHandoff, peekAgentHandoff } from './agentHandoff';
 
 type VoiceOption = { id?: string; name: string; language: string; gender?: string; engine?: string };
 type VoiceDraft = { source: string; text: string; voice: string; rate: string };
@@ -37,6 +38,7 @@ export function Voice({ state, refresh, select, notify }: Shared) {
   const request = useRef(0);
   const saveRequest = useRef(0);
   const mounted = useRef(false);
+  const incoming = useRef(peekAgentHandoff('voice'));
 
   function persist(next: VoiceDraft) {
     const revision = ++saveRequest.current;
@@ -67,7 +69,8 @@ export function Voice({ state, refresh, select, notify }: Shared) {
     try {
       const saved = await readDraft<VoiceDraft>(draftKey(id));
       if (!mounted.current || revision !== request.current) return;
-      const text = saved?.text ?? (id ? (await api<Item>(`/items/${id}`)).transcript : '');
+      const handoff = incoming.current;
+      const text = handoff?.text ?? saved?.text ?? (id ? (await api<Item>(`/items/${id}`)).transcript : '');
       if (!mounted.current || revision !== request.current) return;
       const wantedVoice = saved?.voice || '';
       const matching = available.find(v => voiceId(v) === wantedVoice || v.name === wantedVoice);
@@ -82,7 +85,12 @@ export function Voice({ state, refresh, select, notify }: Shared) {
       currentDraft.current = next;
       setDraft(next);
       setLoaded(true);
-      persist(next);
+      if (handoff) {
+        // Filling a prepared form must not replace an existing voice draft.
+        // The user's next edit saves it through the normal draft path.
+        clearAgentHandoff(handoff.id); incoming.current = null;
+        setSaveStatus('已带入 AI 片段，原配音草稿保留');
+      } else persist(next);
     } catch (error) {
       if (mounted.current && revision === request.current) setLoadingError(`草稿读取失败：${(error as Error).message}`);
     }
@@ -102,7 +110,7 @@ export function Voice({ state, refresh, select, notify }: Shared) {
       if (cancelled) return;
       setVoices(available);
       setSessionReady(true);
-      return loadSource(session?.source || '', available);
+      return loadSource(incoming.current?.source_id ?? session?.source ?? '', available);
     }).catch(error => {
       if (!cancelled) setLoadingError(`草稿读取失败：${error.message}`);
     });
