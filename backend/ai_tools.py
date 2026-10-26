@@ -32,7 +32,7 @@ def string(limit=4096):
 
 
 TOOLS = [
-    spec('search_documents', '查找文稿', '按要求在本机文稿库查找标题和编号，不修改文稿。', {'query': string()}),
+    spec('search_documents', '查找文稿', '在本机文稿标题和正文中匹配连续子串，返回标题和编号，不修改文稿。query只填原文中的短关键词（如“发布资料”），不要填写“标题包含…的文稿”等自然语言查询句。未找到时可缩短关键词重试。', {'query': string()}),
     spec('read_document', '阅读文稿', '分页读取本轮已发现的文稿；当前文稿仅返回本轮选中范围，不能越界。', {'document_id': string(64), 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 8000000}}),
     spec('read_targets', '读取当前范围', '读取发送时冻结的选中正文和只读引用，不扩大修改范围。'),
     spec('list_tasks', '查看任务', '查询当前会话最近 20 个任务的真实状态。'),

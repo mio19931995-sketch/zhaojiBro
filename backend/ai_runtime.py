@@ -70,7 +70,17 @@ async def request_tools(client, base, headers, model, messages, schemas, max_out
     if (not isinstance(calls, list) or message.get('content') is not None and not isinstance(message.get('content'), str)
             or not calls and not isinstance(message.get('content'), str)):
         raise ValueError('模型没有返回正文或有效工具请求')
-    return {'content': message.get('content') or '', 'tool_calls': calls}
+    # Agnes also returns stream-position metadata in non-streaming replies.
+    # Remove only that known, non-executable field before strict validation and
+    # the assistant/tool round trip; never relax function names or arguments.
+    normalized = []
+    for call in calls:
+        if isinstance(call, dict) and 'index' in call:
+            if type(call['index']) is not int or call['index'] < 0:
+                raise ValueError('工具调用位置编号无效，本批未执行')
+            call = {key: value for key, value in call.items() if key != 'index'}
+        normalized.append(call)
+    return {'content': message.get('content') or '', 'tool_calls': normalized}
 
 
 def validate_calls(raw_calls, run, used_ids):

@@ -245,3 +245,65 @@ def test_real_tool_response_parser_rejects_incompatible_or_partial_reply(status,
             return httpx.Response(status, json=payload)
     with pytest.raises(ValueError, match=expected):
         asyncio.run(runtime.request_tools(Client(), 'https://example.test/v1', {}, 'offline', [], [], 2048))
+
+
+def indexed_response(monkeypatch, responses):
+    """Exercise the real provider parser and runtime together, without network."""
+    seen = []
+    original = runtime.request_tools
+    class Client:
+        async def post(self, url, **kwargs):
+            seen.append(copy.deepcopy(kwargs['json']))
+            return httpx.Response(200, json={'choices': [{'message': responses.pop(0)}]})
+    async def respond(_, *args):
+        return await original(Client(), *args)
+    monkeypatch.setattr(runtime, 'request_tools', respond)
+    return seen
+
+
+def test_agnes_index_metadata_accepts_batch_and_round_trips_canonical_calls(client, monkeypatch):
+    work = workspace(client)
+    configure(client, work, tools_enabled=True, allowed_tools=['read_targets', 'list_tasks'])
+    first = {'content': None, 'tool_calls': [
+        call('agnes-a', 'read_targets', {}) | {'index': 0},
+        call('agnes-b', 'list_tasks', {}) | {'index': 1},
+    ]}
+    original = copy.deepcopy(first)
+    seen = indexed_response(monkeypatch, [first, {'content': '已经读取实际范围和任务状态。'}])
+    send(client, work)
+    value = finished(client, work)
+    assert first == original  # Provider data is not mutated in place.
+    assert value['run']['tool_steps'] == 2 and len(seen) == 2
+    exchange = seen[1]['messages'][-3:]
+    assert [m['role'] for m in exchange] == ['assistant', 'tool', 'tool']
+    assert [m['tool_call_id'] for m in exchange[1:]] == ['agnes-a', 'agnes-b']
+    assert all(set(raw) == {'id', 'type', 'function'} for raw in exchange[0]['tool_calls'])
+    assert value['text'] == work['text'] and all(e['state'] == 'completed' for e in value['run']['events'])
+
+
+@pytest.mark.parametrize('bad_index', [-1, True, .5, '0', None])
+def test_invalid_provider_index_rejects_entire_batch_before_execution(client, monkeypatch, bad_index):
+    work = workspace(client)
+    configure(client, work, tools_enabled=True, allowed_tools=['read_targets'])
+    indexed_response(monkeypatch, [{'content': None, 'tool_calls': [
+        call('good', 'read_targets', {}) | {'index': 0},
+        call('bad', 'read_targets', {}) | {'index': bad_index},
+    ]}])
+    send(client, work)
+    value = finished(client, work, 'error')
+    assert '位置编号无效' in value['run']['error'] and not value['run']['events']
+
+
+@pytest.mark.parametrize('bad', [
+    call('extra', 'read_targets', {}) | {'unexpected': True},
+    call('forbidden', 'shell', {'command': 'must not execute'}),
+])
+def test_provider_metadata_normalization_does_not_relax_tool_validation(client, monkeypatch, bad):
+    work = workspace(client)
+    configure(client, work, tools_enabled=True, allowed_tools=['read_targets'])
+    indexed_response(monkeypatch, [{'content': None, 'tool_calls': [
+        call('valid', 'read_targets', {}) | {'index': 0}, bad | {'index': 1},
+    ]}])
+    send(client, work)
+    value = finished(client, work, 'error')
+    assert not value['run']['events'] and not value['run']['actions']

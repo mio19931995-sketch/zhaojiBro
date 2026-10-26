@@ -25,13 +25,17 @@ const summary = { goals: ['CTX_SUMMARY_SENTINEL：继续核对素材'], constrai
 const createdTitle = '工具确认后生成的验收文稿';
 const createdText = '依据只读参考整理：重量120克，价格199元。';
 const handoffUrl = 'https://v.douyin.com/offline-runtime-check/';
-function call(id, name, args) { return { id, type: 'function', function: { name, arguments: JSON.stringify(args) } }; }
+// Agnes includes index even with stream:false; accept it without echoing it back.
+function call(id, name, args) { return { index: 0, id, type: 'function', function: { name, arguments: JSON.stringify(args) } }; }
 const server = http.createServer(async (req, res) => {
   try {
     assert.equal(req.url, '/v1/chat/completions');
     let raw = ''; for await (const part of req) raw += part;
     const body = JSON.parse(raw);
     assert.equal(body.model, 'offline-runtime-fixture');
+    for (const message of body.messages) for (const call of message.tool_calls || []) {
+      assert(!Object.hasOwn(call, 'index'), 'Provider position metadata must not enter request tool envelopes');
+    }
     const isSummary = String(body.messages[0]?.content).startsWith('把对话资料整理为紧凑摘要');
     requests.push({ mode, summary: isSummary, body });
     let message;
