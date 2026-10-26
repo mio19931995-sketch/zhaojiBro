@@ -1,6 +1,6 @@
 export type AgentConfig = { auto_compact: boolean; context_window: number; compact_threshold: number; tools_enabled: boolean; allowed_tools: string[] };
 export type ContextInfo = { estimate: number; input_limit: number; compact_at: number; percent: number; can_compact: boolean; estimated: boolean; history_messages?: number; total_messages?: number; checkpoint?: { summary: string | Record<string, string[]>; created_at?: number; through_message_id?: string } | null };
-export type SkillEntry = { name: string; title: string; description: string; installed: boolean; enabled: boolean; automatic: boolean; generation: string; digest: string; origin: string; config: { strict?: boolean; language?: string }; compatibility?: string };
+export type SkillEntry = { name: string; title: string; description: string; installed: boolean; enabled: boolean; automatic: boolean; generation: string; digest: string; origin: string; config: { strict?: boolean; language?: string; protected_terms?: string[] }; compatibility?: string };
 export type SkillDetail = SkillEntry & { content: string; files: { path: string; size: number }[]; version_id?: string; version_created_at?: number };
 export type SkillVersion = { id: string; name: string; title: string; created_at: number; digest: string };
 export type SkillPreview = { token: string; entry: SkillEntry; content: string; files: { path: string; size: number }[]; warnings: string[]; existing: boolean };

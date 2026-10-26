@@ -7,7 +7,7 @@ import uuid
 
 import httpx
 
-from . import ai_context, ai_edits, engine, integrations, store
+from . import ai_context, ai_edits, ai_translation, engine, integrations, store
 
 MAX_STEPS = 8
 
@@ -183,7 +183,35 @@ def skill_system(run):
     return '\n'.join(pieces)
 
 
-async def process_part(run_id, client, base, headers, model, messages, schemas, compact_prefix=None):
+async def prepare_translation(run_id, client, base, headers, model):
+    run = update(run_id, phase='正在识别并锁定品牌名')
+    entry = next((e for e in run['skill_entries'] if e['name'] == 'lulu-translate'), None)
+    terms = list((entry or {}).get('config', {}).get('protected_terms', []))
+    # If a preset uses saved terminology, its generation also participates in
+    # normal stale-skill guards, just like an explicitly selected method.
+    if entry and terms and 'lulu-translate' not in run['loaded_skills']:
+        run['loaded_skills'].append('lulu-translate')
+        update(run_id, loaded_skills=run['loaded_skills'])
+    limit = ai_context.limits(run['agent_config'])[0]
+    width = min(5000, max(256, (limit - 1600) // 2 - 160))
+    for text in ai_translation.inventory_windows(run['input_text'], width):
+        if not alive(run_id):
+            raise asyncio.CancelledError()
+        messages = [{'role': 'system', 'content': ai_translation.DETECT_SYSTEM},
+                    {'role': 'user', 'content': ai_context.encode({'text': text})}]
+        if ai_context.estimate(messages) > limit:
+            raise ValueError('品牌识别材料超过模型容量，请缩小片段或增加上下文容量')
+        raw = await api().request_completion(client, base, headers, model, messages)
+        if not alive(run_id):
+            raise asyncio.CancelledError()
+        terms = ai_translation.names(list(dict.fromkeys(terms + ai_translation.parse_inventory(raw, text))))
+    guard = ai_translation.BrandLock(run['input_text'], terms)
+    update(run_id, translation_brands=guard.terms)
+    return guard, width
+
+
+async def process_part(run_id, client, base, headers, model, messages, schemas, compact_prefix=None,
+                       brand_lock=None, original_part='', late_protect=None):
     from . import ai_skills, ai_tools
     ai = api()
     local = copy.deepcopy(messages)
@@ -191,12 +219,17 @@ async def process_part(run_id, client, base, headers, model, messages, schemas, 
     run = store.object_get('ai_run', run_id)
     used_ids = {event['call_id'] for event in run.get('events', []) if event.get('call_id')}
     repeated_errors = {}
+    repair = False
     while True:
         if not alive(run_id):
             raise asyncio.CancelledError()
         ai_skills.validate_loaded(run)
+        if brand_lock is None and 'lulu-translate' in run.get('loaded_skills', []) and late_protect:
+            brand_lock = await late_protect()
+            run = store.object_get('ai_run', run_id)
+        wire = brand_lock.messages(local, repair) if brand_lock else local
         if (run['agent_config']['auto_compact'] and compact_prefix is not None
-                and ai_context.estimate(local) + ai_context.estimate(schemas) >= ai_context.limits(run['agent_config'])[1]):
+                and ai_context.estimate(wire) + ai_context.estimate(schemas) >= ai_context.limits(run['agent_config'])[1]):
             replacement = await compact_prefix()
             if replacement is not None:
                 # Never compress a live partial tool exchange or lose its exact result IDs.
@@ -204,21 +237,50 @@ async def process_part(run_id, client, base, headers, model, messages, schemas, 
                 prefix_length = len(replacement)
                 run = store.object_get('ai_run', run_id)
                 ai_skills.validate_loaded(run)
-        if ai_context.estimate(local) + ai_context.estimate(schemas) > ai_context.limits(run['agent_config'])[0]:
+                wire = brand_lock.messages(local, repair) if brand_lock else local
+        if ai_context.estimate(wire) + ai_context.estimate(schemas) > ai_context.limits(run['agent_config'])[0]:
             raise ValueError('当前文稿、工具结果和必要上下文超过模型容量，请缩小片段或增加上下文容量；内容未截断')
         if not schemas:
-            result = await ai.request_completion(client, base, headers, model, local)
+            result = await ai.request_completion(client, base, headers, model, wire)
             ai_skills.validate_loaded(run)
-            return result
-        response = await request_tools(client, base, headers, model, local, schemas, ai_context.output_limit(run['agent_config']))
+            if not alive(run_id):
+                raise asyncio.CancelledError()
+            try:
+                return brand_lock.restore(result, original_part, engine.to_simplified) if brand_lock else engine.to_simplified(result)
+            except ValueError:
+                if repair:
+                    raise
+                repair = True
+                update(run_id, phase='模型改动了品牌名，正在重新翻译（1/1）')
+                continue
+        response = await request_tools(client, base, headers, model, wire, schemas, ai_context.output_limit(run['agent_config']))
         ai_skills.validate_loaded(run)
         if not alive(run_id):
             raise asyncio.CancelledError()
         if not response['tool_calls']:
             if not response['content'].strip():
                 raise ValueError('模型没有返回有效正文，请检查模型兼容性')
-            return response['content']
+            try:
+                return brand_lock.restore(response['content'], original_part, engine.to_simplified) if brand_lock else engine.to_simplified(response['content'])
+            except ValueError:
+                if repair:
+                    raise
+                repair = True
+                update(run_id, phase='模型改动了品牌名，正在重新翻译（1/1）')
+                continue
         calls = validate_calls(response['tool_calls'], run, used_ids)
+        if brand_lock:
+            try:
+                for call in calls:
+                    if call['name'] == 'create_document':
+                        brand_lock.restore(call['arguments']['markdown'], original_part)
+                    call['arguments'] = brand_lock.map_values(call['arguments'], brand_lock.restore)
+            except ValueError:
+                if repair:
+                    raise
+                repair = True
+                update(run_id, phase='模型改动了品牌名，正在重新翻译（1/1）')
+                continue
         raw = {'role': 'assistant', 'content': response['content'] or None, 'tool_calls': response['tool_calls']}
         results, stop = [], False
         for call in calls:
@@ -280,13 +342,25 @@ async def run_job(run_id, base, headers, model, history):
                     if not alive(run_id):
                         raise asyncio.CancelledError()
                     store.object_put('ai_run', run_id, run)
-            parts = list(integrations.chunks(run['input_text']))
+            brand_lock = None
+            if ai_translation.requested(run):
+                brand_lock, width = await prepare_translation(run_id, client, base, headers, model)
+                parts = list(ai_translation.parts(run['input_text'], brand_lock.terms, width))
+            else:
+                parts = list(integrations.chunks(run['input_text']))
+            async def late_protect():
+                nonlocal brand_lock
+                if brand_lock is None:
+                    brand_lock, _ = await prepare_translation(run_id, client, base, headers, model)
+                    if list(ai_translation.parts(run['input_text'], brand_lock.terms)) != parts:
+                        raise ValueError('品牌名跨越当前分段，请选择“文案翻译”技能重新发送，以完整保护品牌')
+                return brand_lock
             outputs = []
             checkpoint = ai.get_workspace(run['workspace_id']).get('context_checkpoint')
             for index, part in enumerate(parts):
                 run = update(run_id, status='running', current=index + 1, total=len(parts), phase=f'正在处理第 {index + 1} / {len(parts)} 段')
                 target = '选中片段（只处理此片段）' if run.get('scope') == 'selection' else '参考文稿'
-                user = {'role': 'user', 'content': f"本轮要求：{run['instruction']}\n{target}（第 {index + 1}/{len(parts)} 段）：\n" + json.dumps(part, ensure_ascii=False) + ai_edits.reference_prompt(run)}
+                user = {'role': 'user', 'content': f"本轮要求：{run['instruction']}\n{target}（第 {index + 1}/{len(parts)} 段）：\n" + json.dumps(brand_lock.mask(part) if brand_lock else part, ensure_ascii=False) + ai_edits.reference_prompt(run)}
                 messages = [{'role': 'system', 'content': system}, *ai_context.projection(history, checkpoint), user]
                 async def compact_prefix():
                     nonlocal checkpoint
@@ -297,7 +371,8 @@ async def run_job(run_id, base, headers, model, history):
                     checkpoint = await compact(run_id, client, base, headers, model, history)
                     update(run_id, phase=f'正在处理第 {index + 1} / {len(parts)} 段')
                     return [{'role': 'system', 'content': system}, *ai_context.projection(history, checkpoint), user]
-                outputs.append(engine.to_simplified(await process_part(run_id, client, base, headers, model, messages, schemas, compact_prefix)))
+                outputs.append(await process_part(run_id, client, base, headers, model, messages, schemas,
+                                                  compact_prefix, brand_lock, part, late_protect))
                 if store.object_get('ai_run', run_id).get('non_edit_result'):
                     break
             with ai.lock:

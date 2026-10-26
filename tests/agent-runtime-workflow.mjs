@@ -20,7 +20,7 @@ const skillContent = `---\nname: ${skillName}\ndescription: 离线桌面验收�
 const importedSkill = path.join(data, 'SKILL.md');
 await fs.writeFile(importedSkill, skillContent);
 const requests = [], modelErrors = [], errors = [], checks = [];
-let mode = 'auto', toolStep = 0, releaseSummary = null, summaryReleased = false;
+let mode = 'auto', toolStep = 0, brandStep = 0, releaseSummary = null, summaryReleased = false;
 const summary = { goals: ['CTX_SUMMARY_SENTINEL：继续核对素材'], constraints: ['保留价格199元'], decisions: ['尚未写回来源'], pending: ['等待用户下一条明确要求'] };
 const createdTitle = '工具确认后生成的验收文稿';
 const createdText = '依据只读参考整理：重量120克，价格199元。';
@@ -49,6 +49,20 @@ const server = http.createServer(async (req, res) => {
         if (res.destroyed) return;
       }
       message = { role: 'assistant', content: mode === 'manual-bad' ? '这不是一个有效摘要对象' : JSON.stringify(summary) };
+    } else if (mode === 'brand') {
+      if (body.messages[0].content.startsWith('识别材料中的品牌名')) {
+        message = { role: 'assistant', content: JSON.stringify({ brands: ['松果X1'] }) };
+      } else {
+        const tokens = body.messages.at(-1).content.match(/BRANDLOCK_[A-Za-z0-9_]+_END/g);
+        assert.equal(tokens.length, 3);
+        assert(!JSON.stringify(body.messages).includes('松果X1'));
+        assert(!JSON.stringify(body.messages).includes('米家 Pro'));
+        if (brandStep++ === 0) message = { role: 'assistant', content: 'Pinecone X1 weighs 120 grams.' };
+        else {
+          assert(body.messages[0].content.includes('上一份译文未完整保留品牌标记'));
+          message = { role: 'assistant', content: `${tokens[0]} weighs 120 grams. ${tokens[1]} costs 299 yuan. ${tokens[2]} launches on November 2.` };
+        }
+      }
     } else if (mode === 'tools') {
       const names = body.tools.map(value => value.function.name);
       for (const name of ['search_documents', 'read_document', 'create_document']) assert(names.includes(name));
@@ -400,6 +414,34 @@ try {
   await page.screenshot({ path: path.join(data, 'restored-skill-version.png') });
   await closeManager();
   checks.push('Confirmed same-name skill replacement preserves history; preview is read-only and restoring a version changes generation while retaining the replaced package');
+
+  await choose(fixtures.brand);
+  dialog = await manager('技能');
+  await dialog.locator('.agent-skill-card[data-name="lulu-translate"]').getByRole('button', { name: '查看技能', exact: true }).click();
+  await dialog.getByLabel('固定保留的品牌名', { exact: true }).fill('米家 Pro\n');
+  await dialog.getByRole('button', { name: '保存技能偏好', exact: true }).click();
+  await waitFor(async () => JSON.stringify((await api('/ai/skills/lulu-translate')).config.protected_terms) === '["米家 Pro"]', 'brand preference persisted without blank lines');
+  await page.screenshot({ path: path.join(data, 'protected-brands-settings.png') });
+  await closeManager();
+  await page.reload(); await choose(fixtures.brand);
+  await page.getByLabel('本轮技能', { exact: true }).selectOption('lulu-translate');
+  mode = 'brand';
+  const translated = await send(fixtures.brand, '将正文翻译为英文。');
+  const translatedText = translated.run.result;
+  assert.equal(brandStep, 2, 'The invalid first output should get exactly one repair attempt');
+  assert.equal(translatedText.match(/松果X1/g).length, 2);
+  assert(translatedText.includes('米家 Pro') && !translatedText.includes('BRANDLOCK_'));
+  assert(!translated.messages.some(message => message.text.includes('Pinecone')));
+  await waitFor(async () => (await page.getByLabel('已锁定品牌名').innerText()).includes('松果X1'), 'visible brand inventory');
+  await page.getByRole('button', { name: '另存结果', exact: true }).click();
+  await waitFor(async () => !!(await work(fixtures.brand)).run.saved_output_id, 'restored translation saved');
+  const output = await api(`/items/${(await work(fixtures.brand)).run.saved_output_id}`);
+  assert.equal(output.transcript, translatedText);
+  assert.equal((await api(`/items/${fixtures.brand.id}`)).transcript, fixtures.brand.transcript);
+  assert.deepEqual(output.metadata.protected_brands.sort(), ['松果X1', '米家 Pro'].sort());
+  await choose(fixtures.brand);
+  await page.screenshot({ path: path.join(data, 'brand-translation-result.png') });
+  checks.push('Brand preferences survive reload; invalid translation is withheld and retried once; restored names and repeated mentions render and save exactly');
 
   dialog = await manager('工具');
   const nativeWindow = await app.browserWindow(page);

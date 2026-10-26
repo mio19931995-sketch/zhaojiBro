@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import threading
 from urllib.parse import urlparse
@@ -209,6 +210,7 @@ async def test_llm_connection(url, model, supplied_key=''):
 
 
 def process_text(text, action, instruction=''):
+    from . import ai_translation, engine
     cfg = store.settings()
     base, model = normalize_llm_config(cfg['llm_url'], cfg['llm_model'])
     if not model:
@@ -219,11 +221,31 @@ def process_text(text, action, instruction=''):
     if instruction.strip():
         prompt += '\n用户补充要求：' + instruction.strip()
     with httpx.Client(timeout=300, trust_env=False, follow_redirects=False) as client:
-        for part in chunks(text):
-            outputs.append(llm_post(client, base, headers,
-                {'model': model, 'messages': [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': part}],
-                 'temperature': .3, 'max_tokens': 8192, 'stream': False}))
-    return '\n\n'.join(outputs)
+        def complete(messages):
+            return llm_post(client, base, headers, {'model': model, 'messages': messages,
+                'temperature': .3, 'max_tokens': 8192, 'stream': False})
+        guard = None
+        if ai_translation.requested({'preset': action, 'instruction': instruction}):
+            from . import ai_skills
+            entry = ai_skills.get_skill('lulu-translate')
+            terms = list(entry['config'].get('protected_terms', [])) if entry['enabled'] and entry['installed'] else []
+            for window in ai_translation.inventory_windows(text):
+                raw = complete([{'role': 'system', 'content': ai_translation.DETECT_SYSTEM},
+                                {'role': 'user', 'content': json.dumps({'text': window}, ensure_ascii=False)}])
+                terms = ai_translation.names(list(dict.fromkeys(terms + ai_translation.parse_inventory(raw, window))))
+            guard = ai_translation.BrandLock(text, terms)
+        for part in ai_translation.parts(text, guard.terms) if guard else chunks(text):
+            messages = [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': part}]
+            for attempt in range(2 if guard else 1):
+                raw = complete(guard.messages(messages, bool(attempt)) if guard else messages)
+                try:
+                    outputs.append(guard.restore(raw, part, engine.to_simplified) if guard else raw)
+                    break
+                except ValueError:
+                    if attempt:
+                        raise
+    joined = '\n\n'.join(outputs)
+    return ai_translation.TranslatedText(joined, guard.terms) if guard else joined
 
 
 def feishu_export(item_ids):

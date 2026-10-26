@@ -159,7 +159,7 @@ def execute(call, run):
     if identity in {'create_document', 'create_skill_draft'}:
         # Normalize model-authored output once, before freezing the preview and
         # its arguments. Local imports and read-only source material stay exact.
-        args = {key: value if key == 'name' else engine.to_simplified(value) for key, value in args.items()}
+        args = {key: value if key == 'name' else engine.simplify_with_brands(value, run.get('translation_brands', [])) for key, value in args.items()}
         call = {**call, 'arguments': args}
         validate(call, config.get('allowed_tools', []))
     if identity == 'read_targets':
@@ -301,7 +301,7 @@ def action_endpoint(workspace_id, run_id, action_id, body, confirm):
         if confirm:
             args = action['arguments']
             if action['tool'] == 'create_document':
-                result = {'document_id': ai.create_item(con, action['preview']['title'], action['preview']['text'], metadata={'ai_run_id': run_id, 'source_id': run['source_id']}), 'message': '已另存为新文稿，原文保持不变'}
+                result = {'document_id': ai.create_item(con, action['preview']['title'], action['preview']['text'], metadata={'ai_run_id': run_id, 'source_id': run['source_id'], 'protected_brands': run.get('translation_brands', [])}), 'message': '已另存为新文稿，原文保持不变'}
             elif action['tool'] == 'create_skill_draft':
                 value = ai_skills.draft_package(args['name'], args['description'], args['instructions'])
                 value.update(origin='draft', installed=False, enabled=False, generation='', updated_at=time.time())

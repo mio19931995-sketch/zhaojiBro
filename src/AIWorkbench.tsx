@@ -347,6 +347,7 @@ export function AIWorkbench({ state, processingSource, navigate, notify, refresh
           </div>}
         </article>)}
         {run && <AgentRunTools run={run} busy={busy || active} confirm={confirmAction} handoff={handoff} openDocument={id => { navigate('library'); select(id); }}/>}
+        {!!run?.translation_brands?.length && <p className="ai-brand-lock" aria-label="已锁定品牌名">已锁定品牌名：{run.translation_brands.join('、')}</p>}
         {run && <div className={`ai-run-status ${run.status === 'error' ? 'is-error' : ''}`} role="status"><span>{run.phase}</span>{['queued', 'running'].includes(run.status) && <progress max={run.total || 1} value={Math.max(0, run.current - 1)}/>}<div>{['queued', 'running'].includes(run.status) ? <Button onClick={cancel}><Stop size={13}/>取消处理</Button> : ['error', 'cancelled', 'interrupted'].includes(run.status) && <Button disabled={busy || active} onClick={() => send(run.instruction, run.preset, run)}><ArrowClockwise size={13}/>重试本次要求</Button>}</div></div>}
         {compactRun && <div className={`ai-run-status ${compactRun.status === 'error' ? 'is-error' : ''}`} role="status"><span>{compactRun.phase}</span>{['queued', 'running'].includes(compactRun.status) ? <Button onClick={cancel}><Stop size={13}/>取消压缩</Button> : ['error', 'cancelled', 'interrupted'].includes(compactRun.status) && <Button disabled={busy || active} onClick={() => compact().catch(error => notify(error.message, true))}>重试压缩</Button>}</div>}
       </div>

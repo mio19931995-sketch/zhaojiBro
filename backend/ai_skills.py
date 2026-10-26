@@ -22,7 +22,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, StrictBool
 
-from . import store
+from . import store, ai_translation
 
 router = APIRouter()
 LOCK = threading.RLock()
@@ -312,8 +312,12 @@ class SkillPatch(BaseModel):
 
 
 def validate_config(identity, value):
-    if set(value) - {'strict', 'language'}:
-        raise ValueError('技能配置只支持 strict 和 language')
+    if set(value) - {'strict', 'language', 'protected_terms'}:
+        raise ValueError('技能配置只支持校对偏好、语言和固定品牌名')
+    if 'protected_terms' in value:
+        if identity != 'lulu-translate':
+            raise ValueError('固定品牌名请在文案翻译技能中配置')
+        value = {**value, 'protected_terms': ai_translation.names(value['protected_terms'])}
     if 'strict' in value and type(value['strict']) is not bool:
         raise ValueError('strict 须为布尔值')
     if 'language' in value and (not isinstance(value['language'], str) or not 1 <= len(value['language']) <= 80):

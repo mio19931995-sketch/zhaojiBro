@@ -42,11 +42,19 @@ def to_simplified(text):
     return simplifier.convert(text) if text else text
 
 
+def simplify_with_brands(text, terms=()):
+    if not terms:
+        return to_simplified(text)
+    from .ai_translation import simplify
+    return simplify(text, list(terms), to_simplified)
+
+
 def simplify_saved_content():
     changed = 0
     for item in store.items():
-        transcript = to_simplified(item['transcript'])
-        segments = [{**segment, 'text': to_simplified(segment['text'])} for segment in item['segments']]
+        terms = item['metadata'].get('protected_brands', [])
+        transcript = simplify_with_brands(item['transcript'], terms)
+        segments = [{**segment, 'text': simplify_with_brands(segment['text'], terms)} for segment in item['segments']]
         if transcript == item['transcript'] and segments == item['segments']:
             continue
         store.update(item['id'], transcript=transcript, segments=segments)

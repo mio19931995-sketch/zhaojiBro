@@ -488,7 +488,8 @@ def process_text(body: TextInput):
         text = integrations.process_text(body.text, body.action, body.instruction)
     except Exception as exc:
         raise ValueError('文案处理失败：' + str(exc)[:700]) from exc
-    item = store.add(body.title, kind='output', transcript=engine.to_simplified(text), status='done', progress=100, phase='文案处理完成', metadata={'source_id': body.source_id, 'action': body.action})
+    brands = getattr(text, 'brands', [])
+    item = store.add(body.title, kind='output', transcript=engine.simplify_with_brands(text, brands), status='done', progress=100, phase='文案处理完成', metadata={'source_id': body.source_id, 'action': body.action, 'protected_brands': brands})
     store.object_put('text_origin', item['id'], {'text': body.text, 'source_id': body.source_id,
                                                'title': '处理时的原文', 'action': body.action})
     return item

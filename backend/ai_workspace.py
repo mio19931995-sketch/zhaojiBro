@@ -223,7 +223,10 @@ def save_draft(workspace_id: str, body: Draft):
     with lock:
         workspace = get_workspace(workspace_id)
         ensure_revision(workspace, body.revision)
-        workspace.update(title=body.title, text=engine.to_simplified(body.text),
+        run = get_run(workspace_id, workspace['run_id']) if workspace['run_id'] else {}
+        item = store.get(workspace['source_id']) if workspace['source_id'] else None
+        brands = list(dict.fromkeys(run.get('translation_brands', []) + (item or {}).get('metadata', {}).get('protected_brands', [])))
+        workspace.update(title=body.title, text=engine.simplify_with_brands(body.text, [t for t in brands if t in body.text]),
                          revision=workspace['revision'] + 1, updated_at=time.time())
         store.object_put('ai_workspace', workspace_id, workspace)
         return {key: workspace[key] for key in ('revision', 'updated_at', 'text', 'title')}
@@ -374,9 +377,15 @@ def update_source(con, workspace, text):
         if len(lines) != len(segments):
             raise ValueError('结果段数与字幕不一致，无法保留时间轴，请另存为输出文稿')
         segments = [{**segment, 'text': line} for segment, line in zip(segments, lines)]
-    if item['transcript'] != text or item['title'] != workspace['title']:
+    run = get_run(workspace['id'], workspace['run_id']) if workspace['run_id'] else {}
+    brands = list(dict.fromkeys(item['metadata'].get('protected_brands', []) + run.get('translation_brands', [])))
+    brands = [t for t in brands if t in text]
+    changed = item['transcript'] != text or item['title'] != workspace['title']
+    if changed:
         store._snapshot(con, item, 'AI 工作区保存前')
-        store._update(con, item['id'], {'transcript': text, 'segments': segments, 'title': workspace['title']})
+    if changed or brands != item['metadata'].get('protected_brands', []):
+        store._update(con, item['id'], {'transcript': text, 'segments': segments, 'title': workspace['title'],
+                      'metadata': {**item['metadata'], 'protected_brands': brands}})
     return item['id'], fingerprint({'title': workspace['title'], 'transcript': text, 'segments': segments})
 
 
@@ -391,7 +400,8 @@ def save_document(workspace_id: str, body: Revision):
         if workspace['source_id']:
             item_id, source_hash = update_source(con, workspace, workspace['text'])
         else:
-            item_id = create_item(con, workspace['title'], workspace['text'])
+            run = get_run(workspace_id, workspace['run_id']) if workspace['run_id'] else {}
+            item_id = create_item(con, workspace['title'], workspace['text'], metadata={'protected_brands': run.get('translation_brands', [])})
             source_hash = fingerprint({'title': workspace['title'], 'transcript': workspace['text'], 'segments': []})
         workspace.update(source_id=item_id, source_hash=source_hash, updated_at=time.time(),
                          save_generation=workspace.get('save_generation', 0) + 1)
@@ -409,7 +419,8 @@ def save_output(workspace_id: str, run_id: str):
         if run['saved_output_id']:
             return {'item_id': run['saved_output_id']}
         item_id = create_item(con, run['title'] + ' · AI 处理', run['result'], 'output',
-                              {'source_id': run['source_id'], 'action': run['preset'] or 'chat', 'ai_run_id': run_id})
+                              {'source_id': run['source_id'], 'action': run['preset'] or 'chat', 'ai_run_id': run_id,
+                               'protected_brands': run.get('translation_brands', [])})
         put_object(con, 'text_origin', item_id, {'text': run['input_text'], 'source_id': run['source_id'], 'title': run['title']})
         run['saved_output_id'] = item_id
         put_object(con, 'ai_run', run_id, run)
