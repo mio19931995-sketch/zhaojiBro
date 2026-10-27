@@ -239,6 +239,10 @@ def process(item_id):
     if not item:
         return
     store.update(item_id, status='processing', phase='正在准备', error='')
+    from . import wechat
+    if wechat.is_wechat_url(item['source_url']):
+        wechat.extract(item)
+        return
     from . import assets
     subtitles = False
     if item['source_url']:
@@ -368,6 +372,10 @@ def export_content(item, fmt):
         return to_simplified('\n\n'.join(f'{i+1}\n{stamp(s["start"], True)} --> {stamp(s["end"], True)}\n{s["text"]}' for i, s in enumerate(item['segments'])) + '\n')
     if fmt == 'md':
         source = f'\n来源：{item["source_url"]}\n' if item['source_url'] else ''
+        if item['kind'] == 'article':
+            for key, label in (('account', '公众号'), ('author', '作者'), ('published_at', '发布时间')):
+                if item['metadata'].get(key):
+                    source += f'{label}：{item["metadata"][key]}\n'
         body = '\n\n'.join(f'[{stamp(s["start"])}] ' +
                           (f'发言人 {s["speaker_id"]}：' if s.get('speaker_id') else '') + s['text']
                           for s in item['segments']) if item['segments'] else item['transcript']

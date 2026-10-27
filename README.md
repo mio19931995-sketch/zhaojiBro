@@ -41,7 +41,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 - 文稿、文案处理及配音草稿恢复；文稿历史版本预览和恢复、回收站单项及批量恢复。
 - 文件夹管理、搜索、Shift 连选、批量移动和导出；素材库批量操作仅包含当前可见的选中项。
 - TXT、Markdown、SRT、CSV、ZIP 导出与 Obsidian Markdown 导出。
-- 抖音独立登录窗口与主页作品采集；其他公开链接通过 yt-dlp 处理。
+- 微信公众号文章：在「文案提取」粘贴文章分享链接，提取标题、作者、公众号、发布时间与公开正文，可导出、继续 AI 处理或复制到 Codex；无需语音模型。用法与范围见 [公众号提取](docs/WECHAT_ARTICLES.md)。
+- 抖音独立登录窗口与主页作品采集；其他受支持的公开音视频链接通过 yt-dlp 处理。
 - 独立下载封面、音视频，优先使用可获取的字幕，选择保留目录和定位本地文件。
 - 接入 Agnes AI、DeepSeek 等 OpenAI Chat Completions 兼容文本服务，进行摘要、校正、改写、大纲和翻译；提供快捷配置与独立连接测试。
 - AI 文稿工作区支持选中片段处理、只读引用、逐项建议与撤销。采纳先进入草稿，点击“保存文稿”才更新原文并保留历史；用法与验证见 [Agent 同步记录](docs/AGENT_SYNC_PHASE2.md)。

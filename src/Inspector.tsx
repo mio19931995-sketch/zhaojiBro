@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowsInSimple, ArrowsOutSimple, ArrowSquareOut, BookOpen, CloudArrowUp, Copy, DownloadSimple, FileText, FloppyDisk, Folder, List, PencilSimple, Trash, X } from '@phosphor-icons/react';
 import type { Shared } from './App';
-import { api, duration, reveal } from './api';
+import { api, duration, isWechatArticle, reveal } from './api';
 import type { Item, Segment } from './api';
 import { Button, Empty } from './components';
 import { clearDraft, readDraft, writeDraft } from './drafts';
@@ -278,29 +278,31 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
       <div className="document-body" ref={documentBody} onWheel={stopFollowing} onTouchMove={stopFollowing}
         onPointerDown={e => { if (e.target === e.currentTarget) stopFollowing(); }}
         onKeyDown={e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) stopFollowing(); }}>
-        {!detail.media_path && !active && <div className="missing-media-note" role="note" aria-label="媒体可用状态">
+        {!detail.media_path && !active && !isWechatArticle(detail) && <div className="missing-media-note" role="note" aria-label="媒体可用状态">
           <strong>{detail.transcript ? '仅文稿可用，无法播放/抽帧' : '暂无音视频，无法播放/抽帧'}</strong>
           <p>{detail.source_url ? '在「文案提取」选择「音视频」并勾选「保留音视频」，重新粘贴原作品链接，点击「抓取」后开始任务。也可先在「Codex 连接」启用视频缓存，再重新抓取。' : '如需播放或抽帧，请在「文案提取」导入对应的音视频。'}{detail.transcript && '文稿仍可通过「复制到 Codex」继续处理。'}</p>
           <div><Button disabled={dirty || saving} onClick={() => navigate('extract')}>{detail.source_url ? '查看下载选项' : '导入音视频'}</Button>{detail.source_url && <Button disabled={dirty || saving} onClick={() => navigate('codex')}>Codex 缓存设置</Button>}</div>
         </div>}
+        {isWechatArticle(detail) && !active && <div className="missing-media-note" role="note" aria-label="公众号提取说明"><strong>微信公众号文章</strong><p>{detail.transcript ? '已提取公开正文，可编辑、导出或复制到 Codex。图片中的文字、内嵌音视频和付费隐藏内容不在提取范围内。' : '点击任务的「开始」或「重试」提取公开正文，无需安装转录模型。'}{detail.metadata.article_cover_warning}</p></div>}
         {tab === 'check' ? <DocumentReview item={detail} items={state.items} settings={state.settings} notify={notify} updated={restored} locate={locateIssue} configure={() => navigate('models')}/> : tab === 'text' ? detail.transcript || dirty ? segments.length > 0 && detail.media_path && !editingText ?
           <div className="synced-transcript" aria-label="同步字幕">{segments.map((segment, index) =>
             <button ref={node => { syncedLines.current[index] = node; }} className={`synced-line ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''} ${index === reviewTarget ? 'review-target' : ''}`} aria-current={index === activeSegment ? 'true' : undefined} title={`跳转到 ${duration(segment.start)}`} onClick={() => { setReviewTarget(null); playSegment(index); }} key={`${segment.start}-${index}`}><span>{duration(segment.start)}</span><strong>{segment.speaker_id != null && <small className="speaker-label">发言人 {segment.speaker_id}</small>}{segment.text}</strong></button>
           )}</div> : <textarea ref={textArea} aria-label="文稿正文" value={draft} readOnly={active || saving} onChange={e => editText(e.target.value)} spellCheck={false}/> :
-          <Empty icon={<FileText size={26}/>} title={active ? '正在生成文稿' : '还没有文稿'} text={active ? '识别出的文字会持续出现在这里。' : '开始转录后，在这里查看和编辑全文。'}/> :
+          <Empty icon={<FileText size={26}/>} title={active ? '正在生成文稿' : '还没有文稿'} text={isWechatArticle(detail) ? active ? '正在获取公众号正文，请稍候。' : '从任务队列开始提取后，在这里查看和编辑正文。' : active ? '识别出的文字会持续出现在这里。' : '开始转录后，在这里查看和编辑全文。'}/> :
           tab === 'timeline' ? segments.length ? <div className="segments">{segments.map((segment, index) =>
             <div ref={node => { timelineLines.current[index] = node; }} className={`segment ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''}`} key={index}>
               <button title="播放这一段" onClick={() => playSegment(index)}>{duration(segment.start)}{segment.speaker_id != null && <small className="speaker-label">发言人 {segment.speaker_id}</small>}</button>
               <textarea aria-label={`第 ${index + 1} 段字幕`} readOnly={active || saving} value={segment.text} onFocus={stopFollowing} onChange={e => editSegments(segments.map((s, i) => i === index ? { ...s, text: e.target.value } : s))}/>
             </div>
-          )}</div> : <Empty icon={<List size={26}/>} title="没有时间戳" text="转录音视频或导入 SRT 后，可以按段编辑和定位播放。"/> :
+          )}</div> : <Empty icon={<List size={26}/>} title="没有时间戳" text={isWechatArticle(detail) ? '公众号文章没有音频时间戳，可在「文稿」中编辑正文。' : '转录音视频或导入 SRT 后，可以按段编辑和定位播放。'}/> :
           <div className="info-list">
             <label>标题<input defaultValue={detail.title} key={detail.title} disabled={active} onBlur={async e => { const title = e.target.value.trim(); if (title && title !== detail.title) { try { await api(`/items/${detail.id}`, 'PATCH', { title }); await refresh(); } catch (err) { notify((err as Error).message, true); } } }}/></label>
             <label>文件夹<input defaultValue={detail.folder} key={detail.folder} disabled={active} onBlur={async e => { if (e.target.value.trim()) { await api(`/items/${detail.id}`, 'PATCH', { folder: e.target.value.trim() }).catch(err => notify(err.message, true)); await refresh(); } }}/></label>
             <label>来源<span>{detail.source_url || (detail.kind === 'voice' ? detail.metadata.source_id ? '文稿配音' : '手动输入配音' : '本地导入')}</span></label><label>状态<span>{detail.phase}</span></label><label>本地文件<span>{detail.media_path || '文稿保存在本地数据库中'}</span></label>
+            {isWechatArticle(detail) && <>{detail.metadata.account && <label>公众号<span>{detail.metadata.account}</span></label>}{detail.metadata.author && <label>作者<span>{detail.metadata.author}</span></label>}{detail.metadata.published_at && <label>发布时间<span>{detail.metadata.published_at}</span></label>}</>}
             {detail.kind === 'voice' && detail.metadata.rate !== undefined && <label>配音语速<span>{Number(detail.metadata.rate) > 0 ? '稍快' : Number(detail.metadata.rate) < 0 ? '稍慢' : '正常'}</span></label>}
             {detail.metadata.source_id && <Button disabled={!state.items.some(i => i.id === detail.metadata.source_id)} onClick={() => select(detail.metadata.source_id)}>{state.items.some(i => i.id === detail.metadata.source_id) ? '打开来源文稿' : '来源文稿已移除，可在回收站恢复'}</Button>}
-            {detail.source_url && <Button onClick={() => window.desktop?.openExternal(detail.source_url)}>打开原作品<ArrowSquareOut size={15}/></Button>}
+            {detail.source_url && <Button onClick={() => window.desktop?.openExternal(detail.source_url)}>{isWechatArticle(detail) ? '打开公众号原文' : '打开原作品'}<ArrowSquareOut size={15}/></Button>}
             <Button onClick={() => reveal(detail.id, detail.media_path ? 'media' : 'document').catch(e => notify(e.message, true))}>在文件夹中显示<Folder size={15}/></Button>
             <Button disabled={active} onClick={async () => { if (!window.confirm('将这份素材移入回收站？可以恢复，原始文件会保留。')) return; try { await api(`/items/${detail.id}`, 'DELETE'); await refresh(); notify('已移入回收站，可在左侧回收站恢复'); close(); } catch (e) { notify((e as Error).message, true); } }}><Trash size={15}/>移入回收站</Button>
           </div>}
