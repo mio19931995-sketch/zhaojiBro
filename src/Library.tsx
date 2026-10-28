@@ -11,7 +11,7 @@ export function Library({state,page,select,selected,notify,refresh}:Shared&{page
   const [creating,setCreating]=useState(false),[title,setTitle]=useState(''),[text,setText]=useState(''),[edit,setEdit]=useState<{kind:string;old?:string;id?:string;value:string}|null>(null),[busy,setBusy]=useState(false),[format,setFormat]=useState('md');
   const anchor=useRef('');
   const kind=['outputs','output-library'].includes(page)?'output':page==='voice-library'?'voice':page==='clip-library'?'clip':'';
-  const all=state.items.filter(i=>kind?i.kind===kind:i.has_transcript&&!['output','voice'].includes(i.kind));
+  const all=state.items.filter(i=>kind?i.kind===kind:(i.has_transcript||i.metadata.article_view)&&!['output','voice'].includes(i.kind));
   const folders=[...new Set([...(state.folders||[]),...all.map(i=>i.folder)])];
   const items=all.filter(i=>(folder==='全部文件夹'||i.folder===folder)&&(!search||searchIds?.includes(i.id)));
   const visible=folders.filter(f=>!collapsed.includes(f)).flatMap(f=>items.filter(i=>i.folder===f));

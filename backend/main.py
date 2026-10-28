@@ -58,7 +58,7 @@ async def local_only(request: Request, call_next):
     result = await call_next(request)
     result.headers['X-Content-Type-Options'] = 'nosniff'
     result.headers['Referrer-Policy'] = 'no-referrer'
-    result.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'"
+    result.headers.setdefault('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'")
     return result
 
 
@@ -272,6 +272,9 @@ def retranscribe(item_id: str):
         if wechat.is_wechat_url(item['source_url']):
             # Keep the current text available if refreshing the article fails.
             # extract() snapshots it only when new content is ready to replace it.
+            metadata = dict(item['metadata'])
+            metadata.pop('article_view_only', None)
+            store.update(item_id, metadata=metadata)
             engine.enqueue(item_id)
             return {'ok': True}
         if not item['media_path'] and not item['source_url']:
@@ -287,6 +290,46 @@ def retranscribe(item_id: str):
                                    phase='等待重新转录' if item['transcript'] else '等待转录', error='', metadata=metadata)
         engine.enqueue(item_id)
     return {'ok': True}
+
+
+@app.post('/api/items/{item_id}/article-refresh')
+def refresh_article_view(item_id: str):
+    from . import wechat
+    with engine.job_lock:
+        item = require(item_id)
+        if not wechat.is_wechat_url(item['source_url']):
+            raise ValueError('仅支持微信公众号文章')
+        if item_id in engine.pending:
+            raise ValueError('当前任务仍在处理中')
+        store.update(item_id, metadata=item['metadata'] | {'article_view_only': True})
+        engine.enqueue(item_id)
+    return {'ok': True}
+
+
+@app.get('/api/items/{item_id}/article-view/{version}')
+def article_view(item_id: str, version: str, request: Request):
+    from . import article_archive
+    item = require(item_id)
+    article_archive.manifest(item, version)
+    # Exact resource prefix prevents saved markup from requesting other local APIs.
+    assets_url = str(request.base_url) + f'api/items/{item_id}/article-assets/{version}/'
+    policy = (f"default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; "
+              f"img-src {assets_url} data:; font-src {assets_url}; "
+              "base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-same-origin")
+    return FileResponse(article_archive.location(item, version) / 'index.html', media_type='text/html',
+                        headers={'Content-Security-Policy': policy, 'Cache-Control': 'no-cache'})
+
+
+@app.get('/api/items/{item_id}/article-assets/{version}/{filename}')
+def article_asset(item_id: str, version: str, filename: str):
+    from . import article_archive
+    item = require(item_id)
+    manifest = article_archive.manifest(item, version)
+    if not re.fullmatch(r'[a-f0-9]{64}\.[a-z0-9]+', filename) or filename not in manifest['files']:
+        raise HTTPException(404, '找不到原文资源')
+    return FileResponse(article_archive.location(item, version) / filename,
+                        media_type=manifest['files'][filename]['mime'],
+                        headers={'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'no-cache'})
 
 
 @app.post('/api/start-all')
