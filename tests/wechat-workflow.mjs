@@ -58,7 +58,7 @@ try {
   await row.getByRole('button', { name: '查看', exact: true }).click();
   const inspector = page.locator('.inspector');
   await inspector.getByRole('button', { name: '文稿', exact: true }).click();
-  await page.getByLabel('公众号提取说明').waitFor();
+  await page.getByLabel('文章提取说明').waitFor();
   assert.equal(await page.getByLabel('媒体可用状态').count(), 0);
   assert.equal(await page.getByLabel('文稿正文').inputValue(), item.transcript);
   await row.getByRole('button', { name: '重新提取', exact: true }).waitFor();
@@ -72,7 +72,7 @@ try {
   for (const key of ['account', 'author', 'published_at']) {
     if (item.metadata[key]) await inspector.getByText(item.metadata[key], { exact: true }).waitFor();
   }
-  await inspector.getByRole('button', { name: '打开公众号原文', exact: true }).waitFor();
+  await inspector.getByRole('button', { name: '打开文章原文', exact: true }).waitFor();
   const md = await (await fetch(base + `/api/items/${id}/export/md`)).text();
   assert(md.includes(item.metadata.author) && md.includes(item.source_url));
   assert((await inspector.getByRole('link', { name: 'SRT', exact: true }).getAttribute('class')).includes('disabled'));
@@ -114,7 +114,7 @@ try {
   await page.getByRole('button', { name: '文稿库', exact: true }).click();
   const libraryEntry = page.getByRole('button', { name: item.title, exact: false }).first();
   await libraryEntry.waitFor();
-  assert((await libraryEntry.innerText()).includes('公众号文章'));
+  assert((await libraryEntry.innerText()).includes('微信公众号'));
   assert(!(await libraryEntry.innerText()).includes('0:00'));
   checks.push('Extracted article is available in the document library');
   assert.deepEqual(errors, []);

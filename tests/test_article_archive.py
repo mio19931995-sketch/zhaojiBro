@@ -1,5 +1,7 @@
 """Original reading preserves resources/styles without running source-page code."""
 import re
+import base64
+from pathlib import Path
 
 import pytest
 from tests.test_wechat import client, HTML, PNG, URL, article_network
@@ -148,3 +150,47 @@ def test_transient_resource_failure_is_retried_once(client, monkeypatch):
     engine.process(item['id'])
     assert len(calls) == 2
     assert store.get(item['id'])['metadata']['article_view']['missing_images'] == 0
+
+
+def test_encoded_inline_image_and_transient_windows_lock(client, monkeypatch):
+    encoded = base64.b64encode(PNG).decode().replace('=', '%3D')
+    encoded = encoded[:12] + '%0A' + encoded[12:]
+    # Exercise an inline resource directly, regardless of the shared HTML fixture.
+    html = '<h1 id="activity-name">内嵌图片</h1><div id="js_content"><img src="data:image/png;base64,' + encoded + '"></div>'
+    article_network(monkeypatch, html)
+    rename = Path.rename
+    attempts = []
+    def locked_once(path, target):
+        if path.name.startswith('building-'):
+            attempts.append(path)
+            if len(attempts) == 1: raise PermissionError('synthetic Windows file lock')
+        return rename(path, target)
+    monkeypatch.setattr(Path, 'rename', locked_once)
+    item = make_article()
+    engine.process(item['id'])
+    result = store.get(item['id'])
+    assert len(attempts) == 2
+    assert result['metadata']['article_view']['saved_images'] == 1
+    assert result['metadata']['article_view']['missing_resources'] == 0
+    assert any((article_archive.location(result) / name).read_bytes() == PNG for name in article_archive.manifest(result)['files'])
+
+
+def test_font_capture_only_saves_used_family_and_character_subset(client):
+    folder = store.DATA / 'font-test'
+    folder.mkdir()
+    calls = []
+    def read(url, purpose, check):
+        calls.append(url)
+        return b'wOF2synthetic-font', 'font/woff2'
+    builder = article_archive.Builder(folder, 'a' * 32, 'b' * 32, URL, lambda: None, read)
+    builder.codepoints = {ord('A')}
+    builder.font_families = {'article font'}
+    css = '''
+    @font-face {font-family:"Article Font"; src:local("Article Font"),url(used.woff2) format("woff2"),url(duplicate.woff) format("woff"); unicode-range:U+0041-005A}
+    @font-face {font-family:"Article Font"; src:url(unused-character.woff2); unicode-range:U+4E00-4EFF}
+    @font-face {font-family:"Other Font"; src:url(unused-family.woff2); unicode-range:U+0041-005A}
+    '''
+    result = builder.css(css, URL)
+    assert len(calls) == 1 and calls[0].endswith('used.woff2')
+    assert 'local("Article Font")' in result and 'unicode-range:U+41-5A' in result
+    assert not any(name in result for name in ('duplicate', 'unused-character', 'Other Font'))

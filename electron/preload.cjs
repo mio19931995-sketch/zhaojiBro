@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('desktop', {
   openExternal: url => ipcRenderer.invoke('lulu:open-external', url),
   platform: options => ipcRenderer.invoke('lulu:platform', options),
   stopPlatform: () => ipcRenderer.invoke('lulu:stop-platform'),
+  captureArticle: (id,viewOnly=false) => ipcRenderer.invoke('lulu:capture-article',id,viewOnly),
   setFullscreen: value => ipcRenderer.invoke('lulu:set-fullscreen', value),
   onFullscreenChange: callback => {
     const handler = (_event, value) => callback(Boolean(value));

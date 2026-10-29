@@ -243,6 +243,10 @@ def process(item_id):
     if wechat.is_wechat_url(item['source_url']):
         wechat.extract(item)
         return
+    from . import articles
+    if item['kind'] == 'article' and articles.platform(item['source_url']):
+        articles.extract(item)
+        return
     from . import assets
     subtitles = False
     if item['source_url']:

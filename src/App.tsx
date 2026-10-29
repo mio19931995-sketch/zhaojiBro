@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { clearAgentHandoff, peekAgentHandoff } from './agentHandoff';
 import { Headphones, FileText, Stack, Microphone, List, User, Folder, PencilSimple, Waveform, Scissors, Cube, GearSix, DownloadSimple, Link, Play, Pause, Check, X, SidebarSimple, ArrowClockwise, Trash, CaretRight, FileAudio, CircleNotch, BookOpen, CloudArrowUp, Record, Stop } from '@phosphor-icons/react';
-import { api, duration, isWechatArticle, labels, preparePlatform } from './api';
+import { api, duration, isArticle, isWechatArticle, articlePlatform, captureArticle, labels, preparePlatform } from './api';
 import type { Item, State } from './api';
 import { Button, Empty } from './components';
 import { Collect, Library, Voice, Clip, Configuration } from './Panels';
@@ -22,7 +22,7 @@ const NAV = [
 ] as const;
 const TOOLS = [['voice','文案配音',Microphone],['clip','直播切片',Scissors],['clip-library','切片库',List]] as const;
 const TITLES: Record<string, [string, string]> = {
-  extract: ['文案提取', '导入音视频或粘贴作品、公众号文章链接，提取文稿。'],
+  extract: ['文案提取', '导入音视频或粘贴作品、文章图文链接，提取文稿。'],
   process: ['AI 文稿工作区', '原文与助手并排，先看建议，再决定如何保存。'],
   live: ['直播录制', '关注开播状态，保存直播画面、分段与互动记录。'],
   outputs: ['内容输出', '在这里查看、编辑和导出处理后的文稿。'],
@@ -113,6 +113,7 @@ function Extract(props: Shared) {
   const [filter, setFilter] = useState('all');
   const [checked, setChecked] = useState<string[]>([]);
   const [recording, setRecording] = useState(false);
+  const [startingAll, setStartingAll] = useState(false);
   const [recordSource,setRecordSource]=useState('microphone');
   const recordCleanup=useRef<()=>void>(()=>{});
   const [options,setOptions]=useState(extractOptionsCache||initialOptions(state.settings));
@@ -178,29 +179,30 @@ function Extract(props: Shared) {
       <button className={`drop-zone ${drag ? 'dragging' : ''}`} disabled={busy} onClick={() => input.current?.click()} onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={e => { e.preventDefault(); setDrag(false); importFiles(e.dataTransfer.files); }}>
         <DownloadSimple size={26}/><strong>{busy ? '正在导入素材…' : '拖入本地音视频文件'}</strong><span>或点击选择</span><small>MP3 · WAV · M4A · MP4 · MOV · 字幕 / 文稿</small>
       </button><input ref={input} data-testid="file-import" type="file" multiple accept="audio/*,video/*,.txt,.md,.srt" hidden onChange={e => e.target.files && importFiles(e.target.files)}/>
-      <div className="inset"><h3><Link size={17}/>粘贴链接，提取文稿</h3><div className="input-row"><input aria-label="作品链接" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && addLink()} placeholder="微信公众号文章 / 抖音 / 小红书 / B 站 / YouTube…"/><Button primary onClick={addLink} disabled={busy}><DownloadSimple size={16}/>抓取</Button></div><DownloadOptions codexCache={state.settings.codex_keep_video==='true'} value={options} change={changeOptions} notify={notify}/><div className="hint-row"><span>先加入队列，点击任务上的「开始」提取。公众号文章直接提取公开正文，无需转录模型；音视频按下载选项处理。</span><button onClick={() => navigate('settings')}>登录与采集设置<CaretRight size={12}/></button></div></div>
+      <div className="inset"><h3><Link size={17}/>粘贴链接，提取文稿</h3><div className="input-row"><input aria-label="作品链接" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && addLink()} placeholder="微信公众号 / 知乎 / 今日头条 / 小红书图文 / 音视频链接…"/><Button primary onClick={addLink} disabled={busy}><DownloadSimple size={16}/>抓取</Button></div><DownloadOptions codexCache={state.settings.codex_keep_video==='true'} value={options} change={changeOptions} notify={notify}/><div className="hint-row"><span>先加入队列，点击任务上的「开始」提取。公众号直接提取；知乎、今日头条、小红书图文在平台窗口打开后保存，无需转录模型。</span><button onClick={() => navigate('settings')}>登录与采集设置<CaretRight size={12}/></button></div></div>
       <div className="inset recording-row"><div className="section-icon"><Microphone size={21}/></div><div><h3>录一段声音</h3><p>{recording ? `正在录音 · ${duration(recordSeconds)}` : '选择声音来源，结束后自动加入转录队列'}</p></div><select aria-label="录音来源" disabled={recording} value={recordSource} onChange={e=>setRecordSource(e.target.value)}><option value="microphone">麦克风</option><option value="system">系统声音</option><option value="mix">麦克风 + 系统混录</option></select><Button primary onClick={record}>{recording ? <Stop size={16}/> : <Microphone size={16}/>} {recording ? '结束录音' : '开始录音'}</Button></div>
     </section>
-    <div className="section-bar"><h2><span className="tiny-dot"/>任务队列 <small>{state.items.filter(i => ['idle','paused','queued','processing'].includes(i.status)).length} 个待处理</small></h2><div className="section-actions"><div className="segmented">{[['all','全部任务'],['active','进行中'],['done','已完成']].map(([v,t]) => <button className={filter === v ? 'selected' : ''} onClick={() => setFilter(v)} key={v}>{t}</button>)}</div><Button primary onClick={async () => { try { for(const i of state.items.filter(i=>['idle','paused','error'].includes(i.status)))await preparePlatform(i); const r = await api('/start-all', 'POST'); await refresh(); notify(`已启动 ${r.count} 个任务`); } catch (e) { notify((e as Error).message, true); } }} disabled={!state.items.some(i => ['idle','error','paused'].includes(i.status))}><Play size={15}/>全部开始</Button></div></div>
+    <div className="section-bar"><h2><span className="tiny-dot"/>任务队列 <small>{state.items.filter(i => ['idle','paused','queued','processing'].includes(i.status)).length} 个待处理</small></h2><div className="section-actions"><div className="segmented">{[['all','全部任务'],['active','进行中'],['done','已完成']].map(([v,t]) => <button className={filter === v ? 'selected' : ''} onClick={() => setFilter(v)} key={v}>{t}</button>)}</div><Button primary onClick={async () => { setStartingAll(true); try { for(const i of state.items.filter(i=>['idle','paused','error'].includes(i.status)))await preparePlatform(i); const r = await api('/start-all', 'POST'); await refresh(); notify(`已启动 ${r.count} 个任务`); } catch (e) { notify((e as Error).message, true); } finally { setStartingAll(false); } }} disabled={startingAll || !state.items.some(i => ['idle','error','paused'].includes(i.status))}><Play size={15}/>全部开始</Button></div></div>
     <section className="panel task-panel">{items.length ? <><div className="task-batch"><label><input type="checkbox" checked={allVisibleChecked} onChange={toggleAllVisible}/><span>全选当前可删除任务</span></label><span>已选 {visibleChecked.length} 项</span><Button disabled={!visibleChecked.length} onClick={() => removeTasks(visibleChecked)}><Trash size={14}/>批量删除</Button></div>{items.map(item => <TaskRow item={item} key={item.id} checked={checked.includes(item.id)} toggleChecked={toggleChecked} remove={() => removeTasks([item.id])} {...props}/>)}</> : <Empty icon={<FileAudio size={30}/>} title="从第一份素材开始" text="导入一段音视频，文稿和处理进度会显示在这里。"/>}</section>
   </>;
 }
 
 function TaskRow({ item, select, selected, refresh, notify, checked, toggleChecked, remove }: Shared & { item: Item; checked: boolean; toggleChecked: (id: string) => void; remove: () => void }) {
+  const [capturing, setCapturing] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   useEffect(() => { setThumbnailFailed(false); }, [item.id, item.media_path, item.metadata.cover_path]);
-  const article = isWechatArticle(item);
+  const article = isArticle(item);
   async function action(command: string) {
-    if (command === 'retranscribe' && item.has_transcript && !window.confirm(article ? '重新从公众号原文提取？成功替换前会保留当前文稿的历史版本，失败时保留现有正文。' : '确定重新转录这条任务吗？\n现有文稿会先保留到历史版本，可在预览中恢复。')) return;
-    try { if(command==='start')await preparePlatform(item);await api(`/items/${item.id}/${command}`, 'POST'); await refresh(); if(command==='retranscribe')notify(article ? '已加入公众号文章提取队列' : item.has_transcript ? '已加入重新转录队列，将按当前语言设置识别' : '已加入转录队列，将按当前语言设置识别'); } catch (e) { notify((e as Error).message, true); }
+    if (command === 'retranscribe' && item.has_transcript && !window.confirm(article ? '重新从原文提取？成功替换前会保留当前文稿的历史版本，失败时保留现有正文。' : '确定重新转录这条任务吗？\n现有文稿会先保留到历史版本，可在预览中恢复。')) return;
+    try { if(article && !isWechatArticle(item) && command !== 'pause') { setCapturing(true); await captureArticle(item); } else if(command==='start')await preparePlatform(item);await api(`/items/${item.id}/${command}`, 'POST'); await refresh(); if(command==='retranscribe')notify(article ? '已加入文章图文提取队列' : item.has_transcript ? '已加入重新转录队列，将按当前语言设置识别' : '已加入转录队列，将按当前语言设置识别'); } catch (e) { notify((e as Error).message, true); } finally { setCapturing(false); }
   }
-  const active = ['processing','queued'].includes(item.status);
+  const active = capturing || ['processing','queued'].includes(item.status);
   const video = /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(item.media_path);
   const thumbnail = item.status === 'done' && !thumbnailFailed && (!!item.metadata.cover_path || video);
   return <article className={`task-row selectable ${selected === item.id ? 'chosen' : ''} ${checked ? 'batch-selected' : ''}`}>
     <input className="task-select" type="checkbox" aria-label={`选择任务 ${item.title}`} checked={checked} disabled={active} onChange={() => toggleChecked(item.id)}/>
-    <button className="task-open" onClick={() => select(item.id)}><span className={`task-icon ${active ? 'working' : ''} ${thumbnail ? 'thumbnail' : ''}`}>{thumbnail ? <img loading="lazy" src={`/api/items/${item.id}/cover`} alt="" onError={() => setThumbnailFailed(true)}/> : active ? <CircleNotch size={23}/> : item.status === 'done' || article ? <FileText size={23}/> : <FileAudio size={23}/>}</span><span className="task-copy"><strong>{item.title}</strong><small>{article ? '微信公众号' : item.source_url ? '来自链接' : '本地素材'}{item.duration > 0 && ` · ${duration(item.duration)}`} · {item.phase}</small></span></button>
-    <div className="task-actions"><span className={`status-pill ${item.status}`}>{labels[item.status]}</span><div className="task-buttons">{item.status === 'done' ? <><Button onClick={() => select(item.id)}>查看<CaretRight size={13}/></Button><Button title={article ? '重新提取公众号文章' : item.has_transcript ? '按当前语言设置重新识别' : '按当前语言设置开始转录'} onClick={() => action('retranscribe')}><ArrowClockwise size={13}/>{article ? '重新提取' : item.has_transcript ? '重转' : '开始转录'}</Button></> : <Button primary={!active} onClick={() => action(active ? 'pause' : 'start')}>{active ? <Pause size={14}/> : <Play size={14}/>} {active ? '暂停' : item.status === 'error' ? '重试' : '开始'}</Button>}<Button title={active ? '请先暂停任务再删除' : '删除任务'} disabled={active} onClick={remove}><Trash size={13}/>删除</Button></div></div>
+    <button className="task-open" onClick={() => select(item.id)}><span className={`task-icon ${active ? 'working' : ''} ${thumbnail ? 'thumbnail' : ''}`}>{thumbnail ? <img loading="lazy" src={`/api/items/${item.id}/cover`} alt="" onError={() => setThumbnailFailed(true)}/> : active ? <CircleNotch size={23}/> : item.status === 'done' || article ? <FileText size={23}/> : <FileAudio size={23}/>}</span><span className="task-copy"><strong>{item.title}</strong><small>{article ? articlePlatform(item) : item.source_url ? '来自链接' : '本地素材'}{item.duration > 0 && ` · ${duration(item.duration)}`} · {item.phase}</small></span></button>
+    <div className="task-actions"><span className={`status-pill ${item.status}`}>{labels[item.status]}</span><div className="task-buttons">{item.status === 'done' ? <><Button onClick={() => select(item.id)}>查看<CaretRight size={13}/></Button><Button title={article ? '重新提取文章图文' : item.has_transcript ? '按当前语言设置重新识别' : '按当前语言设置开始转录'} disabled={capturing} onClick={() => action('retranscribe')}><ArrowClockwise size={13}/>{article ? '重新提取' : item.has_transcript ? '重转' : '开始转录'}</Button></> : <Button primary={!active} disabled={capturing} onClick={() => action(active ? 'pause' : 'start')}>{active ? <Pause size={14}/> : <Play size={14}/>} {capturing ? '平台窗口加载中' : active ? '暂停' : article && !isWechatArticle(item) ? '在平台窗口抓取' : item.status === 'error' ? '重试' : '开始'}</Button>}<Button title={active ? '请先暂停任务再删除' : '删除任务'} disabled={active || capturing} onClick={remove}><Trash size={13}/>删除</Button></div></div>
     {active && <progress aria-label="任务进度" value={item.progress} max={100}/>}
     {item.error && <div className="inline-error">{item.error}</div>}
   </article>;

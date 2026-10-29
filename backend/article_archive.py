@@ -33,7 +33,7 @@ DROP = {'script', 'noscript', 'iframe', 'object', 'embed', 'form', 'input', 'but
 
 
 class PageParser(wechat.ArticleParser):
-    targets = {'img-content', 'js_content'}
+    targets = {'img-content', 'js_content', 'lulu-article-root'}
 
     def __init__(self):
         super().__init__()
@@ -91,14 +91,17 @@ def binary_type(content, content_type):
 
 
 class Builder:
-    def __init__(self, folder, item_id, version, url, check):
+    def __init__(self, folder, item_id, version, url, check, reader=None):
         self.folder, self.url, self.check = folder, url, check
+        self.reader = reader or wechat._read_url
         self.prefix = f'/api/items/{item_id}/article-assets/{version}/'
         self.cache, self.files, self.failed, self.image_urls = {}, {}, {}, set()
         self.styles, self.failed_styles = {}, set()
         self.raw_styles = {}
         self.elements = []
         self.selectors = {}
+        self.codepoints = set()
+        self.font_families = None
         self.lock = threading.Lock()
         self.total = 0
         self.deadline = time.monotonic() + 180
@@ -112,7 +115,7 @@ class Builder:
         for attempt in range(2):
             self.check_budget()
             try:
-                return wechat._read_url(url, purpose, self.check_budget)
+                return self.reader(url, purpose, self.check_budget)
             except ValueError as exc:
                 # Retry a transient transport failure once; never retry access controls.
                 if attempt or not isinstance(exc.__cause__, wechat.httpx.TransportError): raise
@@ -120,7 +123,7 @@ class Builder:
     def resource(self, value, base=None):
         if value.startswith('#'):
             return value
-        url, fragment = (value, '') if value.startswith('data:') else urldefrag(urljoin(base or self.url, value))
+        url, fragment = urldefrag(value) if value.startswith('data:') else urldefrag(urljoin(base or self.url, value))
         with self.lock:
             if url in self.cache:
                 result = self.cache[url]
@@ -135,7 +138,7 @@ class Builder:
                 match = re.fullmatch(r'data:((?:image|font|application)/[\w.+-]+)((?:;[^,]*)?),(.*)', url, re.S)
                 if not match or len(match[3]) > 24 * 1024 * 1024:
                     raise ValueError('图片数据无效或过大')
-                content = base64.b64decode(match[3], validate=True) if ';base64' in match[2].lower() else unquote_to_bytes(match[3])
+                content = base64.b64decode(re.sub(rb'\s+', b'', unquote_to_bytes(match[3])), validate=True) if ';base64' in match[2].lower() else unquote_to_bytes(match[3])
                 mime = match[1]
             else:
                 content, mime = self.download(url, 'asset')
@@ -200,6 +203,28 @@ class Builder:
         for rule in tinycss2.parse_stylesheet(source, skip_comments=True):
             if rule.type == 'error':
                 continue
+            if rule.type == 'at-rule' and rule.lower_at_keyword == 'font-face' and rule.content is not None:
+                declarations = tinycss2.parse_declaration_list(rule.content, skip_comments=True, skip_whitespace=True)
+                values = {d.lower_name: d for d in declarations if d.type == 'declaration'}
+                family = tinycss2.serialize(values['font-family'].value).strip().strip('\"\'').casefold() if 'font-family' in values else ''
+                if self.font_families is not None and family and family not in self.font_families:
+                    continue
+                ranges = [t for t in values['unicode-range'].value if t.type == 'unicode-range'] if 'unicode-range' in values else []
+                if ranges and not any(t.start <= cp <= t.end for t in ranges for cp in self.codepoints):
+                    continue
+                # Electron supports WOFF2; don't download every fallback format of
+                # the same font subset. Keep local() candidates and one web source.
+                if 'src' in values:
+                    groups = [[]]
+                    for token in values['src'].value:
+                        if token.type == 'literal' and token.value == ',': groups.append([])
+                        else: groups[-1].append(token)
+                    remote = [g for g in groups if any(t.type == 'url' or t.type == 'function' and t.lower_name == 'url' for t in g)]
+                    if remote:
+                        chosen = next((g for g in remote if 'woff2' in tinycss2.serialize(g).lower()), remote[0])
+                        local = [g for g in groups if any(t.type == 'function' and t.lower_name == 'local' for t in g)]
+                        values['src'].value = tinycss2.parse_component_value_list(','.join(tinycss2.serialize(g) for g in [*local, chosen]))
+                rule.content = tinycss2.parse_component_value_list(tinycss2.serialize(declarations))
             if rule.type == 'at-rule' and rule.lower_at_keyword == 'import':
                 values = [v for v in rule.prelude if v.type not in ('whitespace', 'comment')]
                 if not values: continue
@@ -278,19 +303,19 @@ class Builder:
         return f'<{node.tag}{attrs}>{body}</{node.tag}>'
 
 
-def create(html, item_id, article, url, check):
+def create(html, item_id, article, url, check, reader=None):
     from . import store
     parser = PageParser()
     parser.feed(html)
     parser.close()
-    target_id = 'img-content' if 'img-content' in parser.roots else 'js_content'
+    target_id = 'lulu-article-root' if 'lulu-article-root' in parser.roots else 'img-content' if 'img-content' in parser.roots else 'js_content'
     root = parser.roots.get(target_id)
     if not root: raise ValueError('原文没有可保存的正文结构')
     version = uuid.uuid4().hex
     parent = store.DATA / 'articles' / item_id
     parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='building-', dir=parent) as temporary:
-        builder = Builder(Path(temporary), item_id, version, url, check)
+        builder = Builder(Path(temporary), item_id, version, url, check, reader)
         def tree(node):
             element = Element(node.tag, {key: value or '' for key, value in node.attrs.items()})
             for child in node.children:
@@ -308,6 +333,14 @@ def create(html, item_id, article, url, check):
         html_tree = Element('html', {key: value or '' for key, value in parser.html_attrs.items()})
         html_tree.append(body_tree)
         builder.elements = list(cssselect2.ElementWrapper.from_html_root(html_tree).iter_subtree())
+        builder.codepoints = {ord(char) for element in document.iter() for char in (element.text or '')}
+        if target_id == 'lulu-article-root':
+            # Browser snapshots include each element's computed font-family.
+            builder.font_families = set()
+            for element in document.iter():
+                for declaration in tinycss2.parse_declaration_list(element.get('style', ''), skip_comments=True, skip_whitespace=True):
+                    if declaration.type == 'declaration' and declaration.lower_name == 'font-family':
+                        builder.font_families.update(part.strip().strip('\"\'').casefold() for part in tinycss2.serialize(declaration.value).split(','))
         def images(node):
             if not isinstance(node, wechat.Node): return
             if node.tag == 'img':
@@ -328,7 +361,7 @@ def create(html, item_id, article, url, check):
         for tag, attrs in reversed(parser.ancestors.get(target_id, [])):
             if tag in ('div', 'section', 'main', 'article'):
                 body = f'<{tag}{builder.attrs(attrs)}>{body}</{tag}>'
-        if target_id != 'img-content':
+        if target_id == 'js_content':
             body = f'<header><h1>{escape(article["title"])}</h1><p>{escape(article["account"])} {escape(article["author"])}</p></header>' + body
         styles.append('#js_content{visibility:visible!important;opacity:1!important}.lulu-image-missing{display:block;padding:24px;color:#666;background:#eee}')
         css = '\n'.join(styles).replace('<', '\\00003c')
@@ -339,11 +372,22 @@ def create(html, item_id, article, url, check):
                 'missing_resources': len(builder.failed), 'saved_at': time.time()}
         manifest = info | {'files': builder.files, 'source_url': url,
                            'images': [builder.cache.get(value, '') for value in sorted(builder.image_urls)],
-                           'failures': [reason for reason in builder.failed.values()]}
+                           'failures': [reason for reason in builder.failed.values()],
+                           'failed_resources': [{'url': value if not value.startswith('data:') else '内嵌资源', 'reason': reason} for value, reason in builder.failed.items()]}
         check()
         (Path(temporary) / 'index.html').write_text(output, encoding='utf-8')
         (Path(temporary) / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False), encoding='utf-8')
-        Path(temporary).rename(parent / version)
+        # Windows indexers/scanners can briefly hold newly written image files.
+        # Publish only a complete snapshot, with a bounded retry for that lock.
+        for attempt in range(6):
+            check()
+            try:
+                Path(temporary).rename(parent / version)
+                break
+            except PermissionError:
+                if attempt == 5:
+                    raise ValueError('原文文件正被其他程序占用，请稍后重试；已有图文和文稿已保留')
+                time.sleep(0.1 * (attempt + 1))
     return info
 
 

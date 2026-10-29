@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowsInSimple, ArrowsOutSimple, ArrowSquareOut } from '@phosphor-icons/react';
-import { api, openExternal } from './api';
+import { api, openExternal, captureArticle, isWechatArticle } from './api';
 import type { Item } from './api';
 import { Button } from './components';
 
@@ -58,7 +58,7 @@ export function ArticleReader({ item, active, refresh, notify }: {
   }
   async function loadOriginal() {
     setBusy(true);
-    try { await api(`/items/${item.id}/article-refresh`, 'POST'); await refresh(); notify('正在保存原文图文，已编辑的文稿会保留'); }
+    try { if (!isWechatArticle(item)) await captureArticle(item, true); await api(`/items/${item.id}/article-refresh`, 'POST'); await refresh(); notify('正在保存原文图文，已编辑的文稿会保留'); }
     catch (e) { notify((e as Error).message, true); }
     finally { setBusy(false); }
   }
@@ -71,7 +71,7 @@ export function ArticleReader({ item, active, refresh, notify }: {
     </div>
     {(view?.missing_images > 0 || view?.missing_resources > 0 || view?.missing_styles > 0) && <p className="article-reader-notice" role="status">已保存 {view.saved_images}/{view.image_count} 张原图；部分图片或样式未获取，可刷新图文或查看在线原页。</p>}
     {item.status === 'error' && <p className="article-reader-notice" role="alert">{item.error}</p>}
-    {version && !failed ? <iframe ref={frame} title="公众号原文图文" sandbox="allow-same-origin" referrerPolicy="no-referrer"
+    {version && !failed ? <iframe ref={frame} title="文章原文图文" sandbox="allow-same-origin" referrerPolicy="no-referrer"
       src={`/api/items/${item.id}/article-view/${version}`} onLoad={() => {
         // A missing archive returns JSON; show a recovery action instead of an empty reader.
         try {
@@ -82,6 +82,17 @@ export function ArticleReader({ item, active, refresh, notify }: {
           // This does not enable or execute any script from the captured article.
           doc.addEventListener('keydown', escapeArticle);
           removeFrameListener.current = () => doc.removeEventListener('keydown', escapeArticle);
+          for (const gallery of doc.querySelectorAll<HTMLElement>('[data-lulu-gallery]')) {
+            const pictures = [...gallery.querySelectorAll<HTMLImageElement>('img')];
+            if (pictures.length < 2) continue;
+            let index = 0;
+            const controls = doc.createElement('div'), previous = doc.createElement('button'), next = doc.createElement('button'), count = doc.createElement('span');
+            controls.style.cssText='display:flex;justify-content:center;gap:16px;align-items:center;padding:12px';
+            previous.textContent='上一张'; next.textContent='下一张';
+            const show = () => { pictures.forEach((picture,i)=>picture.style.display=i===index?'block':'none'); count.textContent=`${index+1} / ${pictures.length}`; previous.disabled=index===0; next.disabled=index===pictures.length-1; };
+            previous.onclick=()=>{index=Math.max(0,index-1);show();}; next.onclick=()=>{index=Math.min(pictures.length-1,index+1);show();};
+            controls.append(previous,count,next);gallery.append(controls);show();
+          }
         } catch { setFailed(true); }
       }} onError={() => setFailed(true)}/> : <div className="article-reader-empty"><strong>{failed ? '原文图文文件暂不可用' : active ? '正在保存原文图文' : '这篇文章尚未保存原文图文'}</strong><p>点击「{version ? '刷新图文' : '加载原文'}」保留原文图片、字体和段落排版，不会覆盖已编辑的文稿。</p><p>视频、互动组件及需要登录的内容，请使用「在线原页」查看。</p></div>}
   </section>;
