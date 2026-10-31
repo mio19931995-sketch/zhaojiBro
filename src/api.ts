@@ -10,6 +10,10 @@ export type Settings = Record<string, string | boolean>;
 export type State = { items: Item[]; settings: Settings; models: Model[]; data_dir: string; folders?:string[] };
 export type Entry = { key: string; title: string; url: string; author: string; duration: number; date: string; likes?: number; views?: number };
 
+export function isWechatArticle(item: Pick<Item, 'source_url'>) {
+  try { return new URL(item.source_url).hostname === 'mp.weixin.qq.com'; } catch { return false; }
+}
+
 export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'X-Lulu-Client': 'desktop' };
   const isForm = body instanceof FormData;

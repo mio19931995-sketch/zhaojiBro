@@ -217,12 +217,19 @@ class LinkInput(BaseModel):
 
 @app.post('/api/links')
 def import_links(body: LinkInput):
+    from . import wechat
     if body.options is not None: assets.validate_options(body.options)
-    result = []
-    for url in body.urls:
+    urls = [wechat.normalize_url(url) if wechat.is_wechat_url(url) else url for url in body.urls]
+    for url in urls:
         engine.validate_url(url)
-        result.append(store.add('链接转写 · ' + (urlparse(url).hostname or ''), source_url=url, folder=body.folder,
-                                metadata={'download_only': body.download_only, **({'options':body.options} if body.options is not None else {})}))
+    result = []
+    for url in urls:
+        article = wechat.is_wechat_url(url)
+        result.append(store.add(('公众号文章 · ' if article else '链接转写 · ') + (urlparse(url).hostname or ''),
+                                source_url=url, folder=body.folder, kind='article' if article else 'media',
+                                metadata={'download_only': body.download_only and not article,
+                                          **({'source_kind': 'wechat_article'} if article else {}),
+                                          **({'options':body.options} if body.options is not None else {})}))
     return result
 
 
@@ -261,6 +268,12 @@ def retranscribe(item_id: str):
         item = require(item_id)
         if item_id in engine.pending:
             raise ValueError('当前任务仍在处理中')
+        from . import wechat
+        if wechat.is_wechat_url(item['source_url']):
+            # Keep the current text available if refreshing the article fails.
+            # extract() snapshots it only when new content is ready to replace it.
+            engine.enqueue(item_id)
+            return {'ok': True}
         if not item['media_path'] and not item['source_url']:
             raise ValueError('没有可重新转录的音视频素材')
         metadata = dict(item['metadata'])
