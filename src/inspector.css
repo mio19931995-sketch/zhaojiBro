@@ -11,6 +11,9 @@
 .caption-save-area .save-row{justify-content:flex-end;flex-wrap:wrap}
 .synced-line.looping,.segment.looping{box-shadow:inset -3px 0 var(--accent)}
 .document-body{overscroll-behavior:contain}
+.missing-media-note{padding:12px;margin-bottom:14px;border:1px solid var(--line);border-radius:8px;background:var(--input);font-size:12px;line-height:1.7}
+.missing-media-note p{margin:6px 0 10px;color:var(--muted)}
+.missing-media-note>div{display:flex;flex-wrap:wrap;gap:8px}
 .inspector{min-height:0}
 .inspector-heading,.document-footer{flex-shrink:0}
 .document-title{flex-shrink:0}
