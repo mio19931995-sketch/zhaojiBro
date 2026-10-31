@@ -44,6 +44,7 @@ cookies*.txt
 !/tests/review-workflow.mjs
 !/tests/codex-mcp.mjs
 !/tests/upstream-workflow.mjs
+!/tests/agent-workflow.mjs
 /tests/smoke_live.py
 /tests/probe-subtitles.py
 
