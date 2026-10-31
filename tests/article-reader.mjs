@@ -43,8 +43,8 @@ try {
   await page.locator('.task-row').filter({ hasText: item.title }).first().getByRole('button', { name: '查看', exact: true }).click();
   const reader = page.getByLabel('原文阅读器');
   await reader.getByRole('button', { name: '全屏浏览', exact: true }).waitFor();
-  const frameElement = page.locator('iframe[title="公众号原文图文"]');
-  const frame = page.frameLocator('iframe[title="公众号原文图文"]');
+  const frameElement = page.locator('iframe[title="文章原文图文"]');
+  const frame = page.frameLocator('iframe[title="文章原文图文"]');
   await frame.locator('#js_content').waitFor({ state: 'visible' });
   await waitFor(async () => frame.locator('img').evaluateAll(images => images.length > 0 && images.every(img => img.complete && img.naturalWidth > 0)), 'cached images render');
   const imageCount = await frame.locator('img').count();

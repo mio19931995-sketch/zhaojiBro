@@ -94,7 +94,7 @@ def asset(args):
     if item['kind'] == 'article':
         metadata = json.loads(item['metadata'])
         result.update({key: metadata.get(key, '') for key in ('account', 'author', 'published_at')})
-        result['usage'] = '这是公众号文字文章，用 lulu_read_transcript 分页读取完整正文。图片文字、内嵌音视频与付费隐藏正文未提取，没有可抽取的视频画面。'
+        result['usage'] = ('这是公众号文字文章' if metadata.get('platform') == '微信公众号' else '这是文章图文') + '，用 lulu_read_transcript 分页读取完整正文。图片文字、内嵌音视频与付费隐藏正文未提取，没有可抽取的视频画面。'
         return result
     result['usage'] = ('直接使用 media_path 指向的 Lulu 缓存文件，无需另存或上传；用 lulu_video_frame 查看画面，用 lulu_read_transcript 读取文稿。'
                        if result['has_media'] else '当前没有可用的音视频缓存。可以读取已有文稿；如需画面，请在 Lulu 开启音视频与保留音视频后重新抓取。')
@@ -132,7 +132,7 @@ def current_asset(args):
 def video_frame(args):
     item = get_item(args['item_id'])
     if item['kind'] == 'article':
-        raise ValueError('公众号文章是文字素材，没有视频画面，请使用 lulu_read_transcript 读取正文')
+        raise ValueError(('公众号文章是文字素材' if json.loads(item['metadata']).get('platform') == '微信公众号' else '文章图文不是视频素材') + '，没有视频画面，请使用 lulu_read_transcript 读取正文')
     value = args.get('seconds', 0)
     if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 86400:
         raise ValueError('画面时间应为 0 到 86400 秒之间的数字')

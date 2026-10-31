@@ -217,18 +217,19 @@ class LinkInput(BaseModel):
 
 @app.post('/api/links')
 def import_links(body: LinkInput):
-    from . import wechat
+    from . import wechat, articles
     if body.options is not None: assets.validate_options(body.options)
-    urls = [wechat.normalize_url(url) if wechat.is_wechat_url(url) else url for url in body.urls]
+    urls = [wechat.normalize_url(url) if wechat.is_wechat_url(url) else articles.normalize_url(url) if articles.platform(url) else url for url in body.urls]
     for url in urls:
         engine.validate_url(url)
     result = []
     for url in urls:
-        article = wechat.is_wechat_url(url)
-        result.append(store.add(('公众号文章 · ' if article else '链接转写 · ') + (urlparse(url).hostname or ''),
+        article = wechat.is_wechat_url(url) or bool(articles.platform(url))
+        provider = 'wechat' if wechat.is_wechat_url(url) else articles.platform(url)
+        result.append(store.add(('文章图文 · ' if article else '链接转写 · ') + (urlparse(url).hostname or ''),
                                 source_url=url, folder=body.folder, kind='article' if article else 'media',
                                 metadata={'download_only': body.download_only and not article,
-                                          **({'source_kind': 'wechat_article'} if article else {}),
+                                          **({'source_kind': provider + '_article', 'platform': '微信公众号' if provider == 'wechat' else articles.NAMES[provider]} if article else {}),
                                           **({'options':body.options} if body.options is not None else {})}))
     return result
 
@@ -268,8 +269,8 @@ def retranscribe(item_id: str):
         item = require(item_id)
         if item_id in engine.pending:
             raise ValueError('当前任务仍在处理中')
-        from . import wechat
-        if wechat.is_wechat_url(item['source_url']):
+        from . import wechat, articles
+        if wechat.is_wechat_url(item['source_url']) or item['kind'] == 'article' and articles.platform(item['source_url']):
             # Keep the current text available if refreshing the article fails.
             # extract() snapshots it only when new content is ready to replace it.
             metadata = dict(item['metadata'])
@@ -294,15 +295,33 @@ def retranscribe(item_id: str):
 
 @app.post('/api/items/{item_id}/article-refresh')
 def refresh_article_view(item_id: str):
-    from . import wechat
+    from . import wechat, articles
     with engine.job_lock:
         item = require(item_id)
-        if not wechat.is_wechat_url(item['source_url']):
-            raise ValueError('仅支持微信公众号文章')
+        if not (wechat.is_wechat_url(item['source_url']) or item['kind'] == 'article' and articles.platform(item['source_url'])):
+            raise ValueError('仅支持已接入平台的文章图文')
         if item_id in engine.pending:
             raise ValueError('当前任务仍在处理中')
         store.update(item_id, metadata=item['metadata'] | {'article_view_only': True})
         engine.enqueue(item_id)
+    return {'ok': True}
+
+
+class ArticleCaptureInput(BaseModel):
+    url: str = Field(max_length=8192)
+    html: str = Field(default='', max_length=12 * 1024 * 1024)
+    view_only: bool = False
+    media: bool = False
+
+
+@app.post('/api/items/{item_id}/article-capture')
+def article_capture(item_id: str, body: ArticleCaptureInput):
+    from . import articles
+    with engine.job_lock:
+        item = require(item_id)
+        if item_id in engine.pending: raise ValueError('请等待当前任务结束')
+        if body.media and articles.platform(body.url) != 'xiaohongshu': raise ValueError('无效内容类型')
+        articles.prepare_capture(item, body.url, body.html, body.view_only, body.media)
     return {'ok': True}
 
 

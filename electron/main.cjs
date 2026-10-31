@@ -131,6 +131,10 @@ async function start() {
   const platform = require('./platform.cjs');
   ipcMain.handle('lulu:platform', async (event, options) => { localEvent(event); return platform.capture(options,baseURL,dataDir); });
   ipcMain.handle('lulu:stop-platform', event => { localEvent(event); platform.stop(); });
+  ipcMain.handle('lulu:capture-article', async (event, id, viewOnly=false) => {
+    localEvent(event);
+    return require('./article-browser.cjs').capture(id, Boolean(viewOnly), baseURL);
+  });
   ipcMain.handle('lulu:open-external', async (event, url) => { localEvent(event); const parsed = new URL(url); if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('不支持的链接'); await shell.openExternal(url); });
   ipcMain.handle('lulu:set-fullscreen', (event, value) => {
     localEvent(event);
