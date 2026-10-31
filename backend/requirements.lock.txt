@@ -25,6 +25,8 @@ colorama==0.4.6
     # via
     #   pytest
     #   tqdm
+cssselect2==0.10.1
+    # via -r backend/requirements.txt
 ctranslate2==4.8.2
     # via faster-whisper
 fastapi==0.141.1
@@ -89,12 +91,17 @@ python-multipart==0.0.32
     # via -r backend/requirements.txt
 pyyaml==6.0.3
     # via
+    #   -r backend/requirements.txt
     #   ctranslate2
     #   huggingface-hub
 requests==2.34.2
     # via -r backend/requirements.txt
 starlette==1.6.0
     # via fastapi
+tinycss2==1.5.1
+    # via
+    #   -r backend/requirements.txt
+    #   cssselect2
 tokenizers==0.23.1
     # via faster-whisper
 tqdm==4.70.0
@@ -122,6 +129,10 @@ urllib3==2.8.0
     # via requests
 uvicorn==0.52.4
     # via -r backend/requirements.txt
+webencodings==0.6.1
+    # via
+    #   cssselect2
+    #   tinycss2
 websocket-client==1.9.2
     # via -r backend/requirements.txt
 yt-dlp==2026.8.19

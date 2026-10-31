@@ -57,6 +57,7 @@ try {
   const row = page.locator('.task-row').filter({ hasText: item.title }).first();
   await row.getByRole('button', { name: '查看', exact: true }).click();
   const inspector = page.locator('.inspector');
+  await inspector.getByRole('button', { name: '文稿', exact: true }).click();
   await page.getByLabel('公众号提取说明').waitFor();
   assert.equal(await page.getByLabel('媒体可用状态').count(), 0);
   assert.equal(await page.getByLabel('文稿正文').inputValue(), item.transcript);

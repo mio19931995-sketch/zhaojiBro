@@ -8,6 +8,7 @@ import { clearDraft, readDraft, writeDraft } from './drafts';
 import { requestFeishu } from './Feishu';
 import { HistoryDialog } from './Recovery';
 import { DocumentReview } from './Jev';
+import { ArticleReader } from './ArticleReader';
 import type { ReviewIssue } from './Jev';
 import './inspector.css';
 
@@ -19,7 +20,7 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
   const [draft, setDraft] = useState('');
   const [segments, setSegments] = useState<Segment[]>([]);
   const [dirty, setDirty] = useState(false);
-  const [tab, setTab] = useState('text');
+  const [tab, setTab] = useState(item && isWechatArticle(item) ? 'original' : 'text');
   const [saving, setSaving] = useState(false);
   const [videoFullscreen, setVideoFullscreen] = useState(false);
   const [playbackTime, setPlaybackTime] = useState(0);
@@ -139,13 +140,13 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
   }
 
   useEffect(() => {
-    const changed = () => setVideoFullscreen(document.fullscreenElement === videoFrame.current);
+    const changed = () => setVideoFullscreen(!!videoFrame.current && document.fullscreenElement === videoFrame.current);
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && fullscreenRef.current && !document.fullscreenElement) {
         setVideoFullscreen(false); window.desktop?.setFullscreen?.(false).catch(() => {});
       }
     };
-    const unsubscribe = window.desktop?.onFullscreenChange?.(setVideoFullscreen);
+    const unsubscribe = window.desktop?.onFullscreenChange?.(value => { if (videoFrame.current) setVideoFullscreen(value); });
     document.addEventListener('fullscreenchange', changed); document.addEventListener('keydown', escape);
     return () => {
       unsubscribe?.(); document.removeEventListener('fullscreenchange', changed); document.removeEventListener('keydown', escape);
@@ -254,15 +255,15 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
       <Button title="关闭预览" onClick={close}><X size={16}/></Button>
     </div></div>
     {!detail ? <Empty icon={<FileText size={32}/>} title="在素材库打开任意一条" text="这里会显示完整的文稿、来源和试听。"/> : <>
-      <div className="document-title"><h2>{detail.title}</h2><p>{detail.folder} · {new Date(detail.created_at * 1000).toLocaleDateString('zh-CN')}</p></div>
-      {detail.metadata.cover_path && !video && <img className="inspector-cover" src={`/api/items/${detail.id}/cover`} alt="作品封面" onDoubleClick={() => reveal(detail.id, 'cover').catch(e => notify(e.message, true))}/>}
+      {tab !== 'original' && <div className="document-title"><h2>{detail.title}</h2><p>{detail.folder} · {new Date(detail.created_at * 1000).toLocaleDateString('zh-CN')}</p></div>}
+      {tab !== 'original' && detail.metadata.cover_path && !video && <img className="inspector-cover" src={`/api/items/${detail.id}/cover`} alt="作品封面" onDoubleClick={() => reveal(detail.id, 'cover').catch(e => notify(e.message, true))}/>}
       {detail.media_path && <div className="media-player">{video ?
         <div ref={videoFrame} className={`video-frame ${videoFullscreen && !document.fullscreenElement ? 'window-fullscreen' : ''}`}>
           <video ref={el => { player.current = el; }} onTimeUpdate={e => syncPlayback(e.currentTarget)} onSeeked={e => mediaSeeked(e.currentTarget)} onEnded={mediaEnded} controls preload="metadata" poster={`/api/items/${detail.id}/cover`} src={`/api/items/${detail.id}/media`}/>
           <button className="video-fullscreen" title={videoFullscreen ? '退出全屏' : '全屏播放'} aria-label={videoFullscreen ? '退出全屏' : '全屏播放'} onClick={toggleVideoFullscreen}>{videoFullscreen ? <ArrowsInSimple size={18}/> : <ArrowsOutSimple size={18}/>}</button>
         </div> : <audio ref={el => { player.current = el; }} onTimeUpdate={e => syncPlayback(e.currentTarget)} onSeeked={e => mediaSeeked(e.currentTarget)} onEnded={mediaEnded} controls preload="metadata" src={`/api/items/${detail.id}/media`}/>}
       </div>}
-      <div className="document-tabs"><div className="segmented">{[['text', '文稿'], ['timeline', '时间轴'], ['check', '检查'], ['info', '信息']].map(([value, label]) =>
+      <div className="document-tabs"><div className="segmented">{[...(isWechatArticle(detail) ? [['original', '原文']] : []), ['text', '文稿'], ['timeline', '时间轴'], ['check', '检查'], ['info', '信息']].map(([value, label]) =>
         <button disabled={dirty && value !== tab} className={tab === value ? 'selected' : ''} key={value} onClick={() => { setTab(value); if (documentBody.current) documentBody.current.scrollTop = 0; if (value !== 'text') setEditingText(false); }}>{label}</button>
       )}</div><div className="transcript-tools">
         {tab === 'text' && segments.length > 0 && detail.media_path && <button disabled={editingText && dirty || saving || active} onClick={beginEditing}>{editingText ? '返回字幕' : '编辑全文'}</button>}
@@ -275,7 +276,7 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
       </div>}
       {editingText && timed && <p className="caption-edit-hint">一行对应一句字幕，校正文字时保留换行即可保留时间轴。增删句子或大幅改写请另存口播稿。</p>}
       {detail.metadata.asr?.timestamp_kind === 'none' && <p className="caption-edit-hint">当前模型生成纯文稿，未提供字幕时间轴。需要跟随高亮或导出 SRT 时，请选择支持时间轴的模型重新转录。</p>}
-      <div className="document-body" ref={documentBody} onWheel={stopFollowing} onTouchMove={stopFollowing}
+      <div className={`document-body ${tab === 'original' ? 'article-body' : ''}`} ref={documentBody} onWheel={stopFollowing} onTouchMove={stopFollowing}
         onPointerDown={e => { if (e.target === e.currentTarget) stopFollowing(); }}
         onKeyDown={e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) stopFollowing(); }}>
         {!detail.media_path && !active && !isWechatArticle(detail) && <div className="missing-media-note" role="note" aria-label="媒体可用状态">
@@ -283,8 +284,8 @@ export function Inspector({ item, close, notify, refresh, navigate, select, stat
           <p>{detail.source_url ? '在「文案提取」选择「音视频」并勾选「保留音视频」，重新粘贴原作品链接，点击「抓取」后开始任务。也可先在「Codex 连接」启用视频缓存，再重新抓取。' : '如需播放或抽帧，请在「文案提取」导入对应的音视频。'}{detail.transcript && '文稿仍可通过「复制到 Codex」继续处理。'}</p>
           <div><Button disabled={dirty || saving} onClick={() => navigate('extract')}>{detail.source_url ? '查看下载选项' : '导入音视频'}</Button>{detail.source_url && <Button disabled={dirty || saving} onClick={() => navigate('codex')}>Codex 缓存设置</Button>}</div>
         </div>}
-        {isWechatArticle(detail) && !active && <div className="missing-media-note" role="note" aria-label="公众号提取说明"><strong>微信公众号文章</strong><p>{detail.transcript ? '已提取公开正文，可编辑、导出或复制到 Codex。图片中的文字、内嵌音视频和付费隐藏内容不在提取范围内。' : '点击任务的「开始」或「重试」提取公开正文，无需安装转录模型。'}{detail.metadata.article_cover_warning}</p></div>}
-        {tab === 'check' ? <DocumentReview item={detail} items={state.items} settings={state.settings} notify={notify} updated={restored} locate={locateIssue} configure={() => navigate('models')}/> : tab === 'text' ? detail.transcript || dirty ? segments.length > 0 && detail.media_path && !editingText ?
+        {tab !== 'original' && isWechatArticle(detail) && !active && <div className="missing-media-note" role="note" aria-label="公众号提取说明"><strong>微信公众号文章</strong><p>{detail.transcript ? '已提取公开正文，可编辑、导出或复制到 Codex。在「原文」查看图片与原始排版。图片中的文字、内嵌音视频和付费隐藏内容不在文稿提取范围内。' : '图片文章可在「原文」中浏览。文字提取无需安装转录模型，不识别图片中的文字。'}{detail.metadata.article_cover_warning}</p></div>}
+        {tab === 'original' ? <ArticleReader item={detail} active={active} refresh={refresh} notify={notify}/> : tab === 'check' ? <DocumentReview item={detail} items={state.items} settings={state.settings} notify={notify} updated={restored} locate={locateIssue} configure={() => navigate('models')}/> : tab === 'text' ? detail.transcript || dirty ? segments.length > 0 && detail.media_path && !editingText ?
           <div className="synced-transcript" aria-label="同步字幕">{segments.map((segment, index) =>
             <button ref={node => { syncedLines.current[index] = node; }} className={`synced-line ${index === activeSegment ? 'current' : ''} ${index === loopIndex ? 'looping' : ''} ${index === reviewTarget ? 'review-target' : ''}`} aria-current={index === activeSegment ? 'true' : undefined} title={`跳转到 ${duration(segment.start)}`} onClick={() => { setReviewTarget(null); playSegment(index); }} key={`${segment.start}-${index}`}><span>{duration(segment.start)}</span><strong>{segment.speaker_id != null && <small className="speaker-label">发言人 {segment.speaker_id}</small>}{segment.text}</strong></button>
           )}</div> : <textarea ref={textArea} aria-label="文稿正文" value={draft} readOnly={active || saving} onChange={e => editText(e.target.value)} spellCheck={false}/> :

@@ -1,5 +1,6 @@
 """Seed only the isolated native Electron test library."""
 import json
+import base64
 import os
 from pathlib import Path
 
@@ -12,5 +13,7 @@ item = store.add('旧版失败的公众号任务', source_url=live_url or 'https
                  metadata={'download_only': True, 'action': 'assets', 'options': {'cover': bool(live_url)}})
 if not live_url:
     wechat.fetch_html = lambda url, check: (Path(__file__).parent / 'fixtures/wechat_article.html').read_text(encoding='utf-8')
+    png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aMuoAAAAASUVORK5CYII=')
+    wechat._read_url = lambda url, purpose, check: (png, 'image/png')
     engine.process(item['id'])
 print(json.dumps({'id': item['id'], 'live': bool(live_url)}))

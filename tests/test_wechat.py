@@ -33,7 +33,7 @@ def article_network(monkeypatch, html=HTML):
     def read(url, purpose, check_cancel):
         check_cancel()
         requests.append((url, purpose))
-        return (PNG, 'image/png') if purpose == 'cover' else (html.encode(), 'text/html; charset=utf-8')
+        return (PNG, 'image/png') if purpose in ('cover', 'asset') else (html.encode(), 'text/html; charset=utf-8')
     monkeypatch.setattr(wechat, '_read_url', read)
     return requests
 
@@ -149,7 +149,7 @@ def test_mixed_link_import_old_error_retry_exports_and_codex(client, monkeypatch
     assert '繁体中文' in result['transcript'] and 'https://example.com/資料?x=1&y=2' in result['transcript']
     assert Path(result['metadata']['cover_path']).read_bytes() == PNG
     assert client.get(f"/api/items/{result['id']}/cover").status_code == 200
-    assert {purpose for _, purpose in network} == {'article', 'cover'}
+    assert {purpose for _, purpose in network} == {'article', 'cover', 'asset'}
     md = client.get(f"/api/items/{result['id']}/export/md").content.decode('utf-8-sig')
     assert all(value in md for value in ('测试作者', '测试公众号', '2026-10-27 13:21', URL))
     assert client.get(f"/api/items/{result['id']}/export/txt").content.decode('utf-8-sig') == result['transcript']
@@ -195,7 +195,8 @@ def test_global_cover_off_video_cache_on_and_cover_failure_are_text_safe(client,
     store.save_settings({'download_cover': 'false', 'codex_keep_video': 'true'})
     item = store.add('待提取', source_url=URL)
     engine.process(item['id'])
-    assert requests == [(URL, 'article')] and not store.get(item['id'])['media_path']
+    assert [entry for entry in requests if entry[1] != 'asset'] == [(URL, 'article')]
+    assert not store.get(item['id'])['media_path']
     assert store.settings()['download_cover'] == 'false'
     def cover_error(url, purpose, check):
         if purpose == 'cover':

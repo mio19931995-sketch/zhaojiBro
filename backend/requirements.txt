@@ -9,4 +9,6 @@ opencc-python-reimplemented>=0.1.7,<1
 pytest>=8,<10
 requests>=2.31,<3
 websocket-client>=1.9,<2
+tinycss2>=1.4,<2
+cssselect2>=0.8,<1
 transcribe-cpp==0.4.0

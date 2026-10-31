@@ -48,6 +48,7 @@ cookies*.txt
 !/tests/agent-runtime-workflow.mjs
 !/tests/wechat-workflow.mjs
 !/tests/electron-lifecycle.mjs
+!/tests/article-reader.mjs
 /tests/smoke_live.py
 /tests/probe-subtitles.py
 

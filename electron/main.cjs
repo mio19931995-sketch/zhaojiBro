@@ -87,6 +87,13 @@ async function start() {
   };
   window.on('enter-full-screen', () => fullscreenChanged(true));
   window.on('leave-full-screen', () => fullscreenChanged(false));
+  // Keyboard events from a sandboxed article iframe do not bubble to React.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape' && !mainWindow.isDestroyed() && mainWindow.isFullScreen()) {
+      event.preventDefault();
+      mainWindow.setFullScreen(false);
+    }
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(baseURL + '/')) event.preventDefault(); });
   window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
@@ -125,7 +132,12 @@ async function start() {
   ipcMain.handle('lulu:platform', async (event, options) => { localEvent(event); return platform.capture(options,baseURL,dataDir); });
   ipcMain.handle('lulu:stop-platform', event => { localEvent(event); platform.stop(); });
   ipcMain.handle('lulu:open-external', async (event, url) => { localEvent(event); const parsed = new URL(url); if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('不支持的链接'); await shell.openExternal(url); });
-  ipcMain.handle('lulu:set-fullscreen', (event, value) => { localEvent(event); window.setFullScreen(Boolean(value)); return window.isFullScreen(); });
+  ipcMain.handle('lulu:set-fullscreen', (event, value) => {
+    localEvent(event);
+    if (value) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
+    window.setFullScreen(Boolean(value));
+    return window.isFullScreen();
+  });
   await mainWindow.loadURL(baseURL);
   if (app.isQuitting || mainWindow.isDestroyed()) return;
   mainWindow.show();

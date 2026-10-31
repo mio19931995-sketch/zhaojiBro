@@ -40,12 +40,15 @@ def _allowed_url(url, purpose):
     if parsed.scheme not in ('https', 'http') or parsed.username or parsed.password or parsed.port not in (None, 80, 443):
         return False
     host = parsed.hostname or ''
-    return host == HOST or purpose == 'cover' and (host.endswith('.qpic.cn') or host.endswith('.qlogo.cn'))
+    return (host == HOST or purpose in ('cover', 'asset', 'style') and
+            (host.endswith('.qpic.cn') or host.endswith('.qlogo.cn') or
+             host in ('res.wx.qq.com', 'res2.wx.qq.com', 'wxappdl.qq.com')))
 
 
 def _read_url(url, purpose, check_cancel):
     from . import engine
-    limit = MAX_HTML_BYTES if purpose == 'article' else MAX_COVER_BYTES
+    limit = {'article': MAX_HTML_BYTES, 'cover': MAX_COVER_BYTES, 'style': 2 * 1024 * 1024,
+             'asset': 16 * 1024 * 1024}[purpose]
     deadline = time.monotonic() + 45
     try:
         with httpx.Client(timeout=httpx.Timeout(15, connect=10), follow_redirects=False,
@@ -177,12 +180,15 @@ def _plain(node):
     return re.sub(r'\n{3,}', '\n\n', text).strip()
 
 
-def parse_article(html):
+def parse_article(html, allow_images=False):
     parser = ArticleParser()
     parser.feed(html)
     parser.close()
     body = _plain(parser.roots.get('js_content'))
-    if not body:
+    def has_image(node):
+        return isinstance(node, Node) and (node.tag == 'img' and bool(node.attrs.get('data-src') or node.attrs.get('src')) or
+                                           any(has_image(child) for child in node.children))
+    if not body and not (allow_images and has_image(parser.roots.get('js_content'))):
         if any(word in html for word in ('环境异常', '访问过于频繁', '完成验证', '安全验证', '验证码')):
             raise ValueError('微信要求安全验证，未提取到正文。请在微信中打开原文并完成验证，稍后重试；也可复制正文后在文稿库新建文稿')
         if any(word in html for word in ('内容已被删除', '内容已删除', '内容因违规无法查看', '该内容无法查看')):
@@ -206,14 +212,23 @@ def parse_article(html):
 
 
 def extract(item):
-    from . import engine, store
+    from . import article_archive, engine, store
     item_id = item['id']
     check = lambda: engine.check_cancel(item_id)
     url = normalize_url(item['source_url'])
     store.update(item_id, phase='正在提取公众号文章', progress=15)
-    article = parse_article(fetch_html(url, check))
+    html = fetch_html(url, check)
+    article = parse_article(html, allow_images=True)
     check()
     metadata = dict(item['metadata'])
+    view_only = metadata.pop('article_view_only', False)
+    store.update(item_id, phase='正在保存原文图片与排版', progress=40)
+    metadata['article_view'] = article_archive.create(html, item_id, article, url, check)
+    if view_only:
+        with engine.job_lock:
+            check()
+            store.update(item_id, metadata=metadata, status='done', progress=100, error='', phase='原文图文已保存')
+        return
     metadata.update(source_kind='wechat_article', platform='微信公众号', transcript_source='wechat_article',
                     author=article['author'], account=article['account'], published_at=article['published_at'],
                     date=article['published_at'][:10], download_only=False, action='article',
