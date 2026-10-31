@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import io
 import json
@@ -18,20 +19,29 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import store, engine, integrations, secrets, workflows, assets, review, codex_connection
+from . import store, engine, integrations, secrets, workflows, assets, review, codex_connection, live, ai_workspace, asr_windows
 
 
 @asynccontextmanager
 async def lifespan(app):
     engine.simplify_saved_content()
     engine.start_worker()
-    yield
+    ai_workspace.recover()
+    live.startup()
+    try:
+        yield
+    finally:
+        await asyncio.gather(ai_workspace.shutdown(), asyncio.to_thread(live.shutdown),
+                             asyncio.to_thread(engine.shutdown, 8))
 
 
 app = FastAPI(title='Lulu Workbench', lifespan=lifespan, docs_url=None, redoc_url=None)
 app.include_router(workflows.router)
 app.include_router(review.router)
 app.include_router(codex_connection.router)
+app.include_router(live.router)
+app.include_router(ai_workspace.router)
+app.include_router(asr_windows.router)
 
 
 @app.middleware('http')
@@ -81,7 +91,7 @@ def public_settings():
 
 @app.get('/api/health')
 def health():
-    return {'ok': True, 'version': '0.1.0', 'data_dir': str(store.DATA),
+    return {'ok': True, 'version': '0.2.0', 'data_dir': str(store.DATA),
             'ffmpeg': bool(shutil.which('ffmpeg')), 'pending': len(engine.pending)}
 
 

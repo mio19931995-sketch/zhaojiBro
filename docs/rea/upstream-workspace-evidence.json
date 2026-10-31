@@ -1,0 +1,85 @@
+{
+  "evidence_id": "ev_ee49cffcf4cfef12c85f00927634c2d2a903748002096b217db8f87ef5be3490",
+  "operation": "analyze_javascript_application",
+  "provider": {
+    "id": "rea-javascript-application",
+    "name": "REA JavaScript application analyzer",
+    "version": "1"
+  },
+  "confidence": "derived",
+  "authority": "shipped-artifact",
+  "limitations": [
+    "Caller-selected source analysis leaves 10 inventoried files outside analysis scope. Inventory identity covers the complete artifact; relationships through unselected sources remain unknown.",
+    "CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.",
+    "Graph coverage is incomplete; unavailable facts remain explicit and must not be read as absence.",
+    "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
+    "Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.",
+    "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
+    "Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code."
+  ],
+  "source_commit": "8ae31a76e1e135e6e016c46e270e9992c7162a51",
+  "artifact_sha256": "8881d7cc7d935a4685d5280ceeb77fe9f047476ab1baa1d527b6796eb468487b",
+  "input": "app/src/ui/agent_workspace",
+  "selected_source": "assets/workspace.js",
+  "statistics": {
+    "relevant_files": 11,
+    "nested_asar_containers": 0,
+    "text_bytes_read": 580306,
+    "invalid_utf8_files": 0,
+    "parsed_javascript_files": 1,
+    "skipped_javascript_files": 0,
+    "visited_ast_nodes": 182859,
+    "findings": 0,
+    "modules": 0,
+    "parse_failures": 0
+  },
+  "semantic_coverage": {
+    "status": "partial",
+    "truncated": true,
+    "omitted_unknown_occurrences": [
+      {
+        "family": "call-flow",
+        "reason": "dynamic-call",
+        "occurrences": 8068
+      },
+      {
+        "family": "object-flow",
+        "reason": "ambiguous-target",
+        "occurrences": 10974
+      },
+      {
+        "family": "object-flow",
+        "reason": "dynamic-property",
+        "occurrences": 1449
+      },
+      {
+        "family": "timer",
+        "reason": "ambiguous-target",
+        "occurrences": 15
+      }
+    ],
+    "limits": [
+      {
+        "name": "semantic_graph_file_node_ceiling",
+        "value": 20000,
+        "unit": "items"
+      },
+      {
+        "name": "semantic_graph_file_unknown_ceiling",
+        "value": 20000,
+        "unit": "items"
+      },
+      {
+        "name": "semantic_graph_node_ceiling",
+        "value": 100000,
+        "unit": "items"
+      },
+      {
+        "name": "semantic_graph_unknown_ceiling",
+        "value": 100000,
+        "unit": "items"
+      }
+    ]
+  },
+  "compiled_js_sha256": "264a3f31455425426338603e76662b078edffe3a059c8ee825c2803c4d139800"
+}

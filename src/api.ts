@@ -1,4 +1,4 @@
-export type Segment = { start: number; end: number; text: string };
+export type Segment = { start: number; end: number; text: string; speaker_id?: number };
 export type Item = {
   id: string; title: string; kind: string; status: string; phase: string; error: string; progress: number;
   source_url: string; media_path: string; duration: number; folder: string; created_at: number; updated_at: number;

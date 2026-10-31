@@ -2,17 +2,17 @@
 
 面向 Windows 的本地内容工作台：把音视频转换为文稿，整理素材，再进行文案处理、系统配音、切片与知识库导出。
 
-这是参考 [Lulu for macOS](https://github.com/AidenXu-1/Lulu) 的公开工作流程独立实现的开发预览版，并非官方 Windows 发行版。当前分享的是源码项目，尚无双击即装的独立安装包。界面采用本项目独立绘制的图标。
+这是根据 [Lulu](https://github.com/AidenXu-1/Lulu) 公开工作流程与 v4.3.1 开源实现适配的 Windows 开发预览版，并非官方 Windows 发行版。当前分享的是源码项目，尚无双击即装的独立安装包。界面采用本项目独立绘制的图标。同步来源、REA 证据与平台差异见 [同步记录](docs/UPSTREAM_SYNC.md)。
 
 > 使用前请查看 [已知问题](docs/KNOWN_ISSUES.md)。本地核心流程已验证；飞书真实账号写入、部分平台采集与字幕仍需验证，不承诺全部功能或全部链接可用。
 
 ## 界面预览
 
-![Lulu Workbench 工作台](docs/images/workbench.png)
+![Lulu Workbench AI 文稿工作区（合成演示资料）](docs/images/workbench.png)
 
 ## 在 Windows 上安装
 
-支持 Windows 10 / 11，当前验证环境为 x64。第一次安装需要联网下载依赖和语音模型。建议将源码解压到普通用户有写入权限的文件夹，例如 `D:\Apps\LuluWorkbench`。
+支持 Windows 10 / 11，当前验证环境为 x64。第一次安装需要联网下载程序依赖，不自动下载模型权重。已有资料与模型会保留。建议将源码解压到普通用户有写入权限的文件夹，例如 `D:\Apps\LuluWorkbench`。
 
 1. 从本仓库页面点击 **Code → Download ZIP**，解压到一个固定目录；也可以用 Git 克隆。
 2. 安装以下依赖，并重新打开终端，让 PATH 生效：
@@ -28,7 +28,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 此命令仅为本次安装脚本设置执行策略，不修改系统的全局执行策略。脚本会检查依赖、创建项目内 Python 环境、安装锁定依赖并构建界面。重复运行会复用已有 Python 环境，不删除用户资料库。
 
 4. 安装完成后，双击 **start.vbs**。也可以在项目目录运行 `npm.cmd start`。
-5. 首次打开进入 **AI 大模型 → 本地语音转录**，下载 **Whisper Base**。模型下载完成后，即可导入音视频并点击任务的“开始”。
+5. 首次打开进入 **AI 大模型 → 本地转录模型**，主动下载 Whisper Base，或导入已有模型。模型就绪后，即可导入音视频并点击任务的“开始”。SenseVoice、Whisper Turbo 量化版、MOSS 使用独立 Windows 运行工具；按界面准备运行工具并导入对应 GGUF 文件，不支持直接使用 Mac MLX 权重。详见 [本地模型适配](docs/ASR_PORT.md)。
 
 需要创建桌面快捷方式时，右键 `start.vbs`，选择“发送到 → 桌面快捷方式”。启动依赖项目目录，请保留 `.venv`、`node_modules`、`dist` 和 `backend`；不要只复制 `start.vbs` 到另一台电脑。
 
@@ -50,8 +50,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 - 按起止时间截取本地音视频，配音与视频素材可直接定位到媒体文件。
 - 飞书 OAuth、知识库位置预设、新建或已有多维表格、字段及附件导出和失败重试。
 - 中文界面、浅色与深色外观。
+- 抖音直播监控、自动开播录制、分段保存、基础互动记录与导出；断流或退出时保留已写入的素材。真实平台登录与抓取仍需账户环境验证，详见 [直播录制说明](docs/LIVE_PORT.md)。
+- AI 文稿工作区：原文与对话并排，草稿及对话保存在本地，处理进度、取消、重试和建议预览；结果经用户操作后另存或应用，保留历史版本与字幕结构。详见 [工作区说明](docs/AI_WORKSPACE_PORT.md)。
+- 四款主力本地模型的 Windows 对应运行方式：SenseVoice Small Q8、Whisper Turbo、Whisper Turbo Q4、MOSS Q5；原有 Tiny/Base/Small 仍可使用。MOSS 的匿名发言人在字幕、时间轴及 Markdown 中保留。SenseVoice 不提供时间轴，不能用于同步高亮/SRT。
 
-音色克隆、生成前的短句试听、双语时间轴字幕翻译、按字幕选句切片、一键资料库备份、实时直播录制、自动精彩片段识别、自动更新和独立安装器尚未实现。“直播切片”页面目前处理的是已导入的本地录播文件；文案处理中英翻译生成的是独立文本，不会自动产生双语 SRT。
+音色克隆、生成前的短句试听、双语时间轴字幕翻译、按字幕选句切片、一键资料库备份、自动精彩片段识别、自动更新和独立安装器尚未实现。“配音与切片”内的切片工具处理已保存的录播文件；文案翻译生成独立文本，不自动产生双语 SRT。官方 macOS XPC/MLX 可执行文件与 `lulu-agent` 不直接适用于 Windows，本项目继续使用已有 Codex MCP 素材读取接口。
 
 ## 常用操作
 
@@ -105,6 +108,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 - `data/media/`：导入和下载的音视频。
 - `data/models/`：语音模型。
 - `data/outputs/`：生成的配音与切片。
+- `data/live/recordings/`：直播分段、互动采样与弹幕日志。
+- `data/runtimes/`：本地原生运行工具及校验记录。外部导入的模型只保存引用，其原目录也需自行备份。
 
 尚无一键备份与整库恢复界面；请关闭程序后备份整个 `data` 文件夹。若设置了 `LULU_DATA_DIR`，请备份设置页显示的实际数据目录；另行选择的媒体保存目录也应单独备份。回收站用于恢复移除的列表记录，历史版本用于恢复文稿和字幕，均不能代替完整文件备份。移除列表记录不会自动删除源文件，回收站没有永久删除按钮。关闭主窗口会结束此次启动的本地服务，未完成任务下次打开可重新开始，已下载媒体可复用。
 
@@ -112,7 +117,7 @@ App Secret 与模型 API Key 使用 Windows DPAPI 加密，迁移到其他 Windo
 
 本地转录在本机完成；模型下载和内容采集会连接对应服务。使用文本模型会把所选正文发给配置的服务，飞书导出会把用户选择的资料发送至飞书。
 
-本仓库不包含用户数据库、音视频、账号密钥、Cookie、模型权重、参考录屏或本地验收截图。
+本仓库不包含用户数据库、音视频、账号密钥、Cookie、模型权重或参考录屏。界面示例只使用合成测试素材。
 
 ## 开发与验证
 
@@ -135,7 +140,7 @@ npm.cmd run dev
 可重复的后端回归测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_backend.py tests/test_parity.py tests/test_acceptance.py tests/test_creator_safety.py tests/test_llm_providers.py tests/test_review.py tests/test_codex_bridge.py -q
+.\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
 `tests/test_creator_safety.py` 覆盖字幕时间戳保护、历史版本、恢复与回收站，以及配音来源和制作参数等内容保护行为。这些测试使用独立临时资料库，云端交互使用测试响应，不能代表真实账号写入或每个平台都已验证。
@@ -153,10 +158,17 @@ npm.cmd run build
 node tests/creator-workflow.mjs
 ```
 
-需要项目 Python 环境、FFmpeg、npm 依赖及 Windows 上的 Microsoft Edge。脚本会生成测试视频，在 `.test-data/creator-workflow-*` 新建隔离资料库并启动独立后端，不使用个人资料库或外部模型服务。它在真实浏览器中检查 7 条流程：字幕置顶与手动暂停跟随、单句循环与倍速、全屏进出、全文校稿保留时间戳及 SRT、历史版本恢复、结构改写另存口播稿、回收站批量恢复。结果 JSON 和截图保存在该测试目录；脚本结束会停止测试后端。
+需要项目 Python 环境、FFmpeg、npm 依赖及 Windows 上的 Microsoft Edge。脚本在 `.test-data/creator-workflow-*` 新建资料库并生成测试视频，不使用个人资料库或外部模型服务。现覆盖 13 条流程：字幕跟随/单句循环/倍速/全屏、字幕校稿与历史恢复、回收站、只下载后转录入口、缺媒体说明、Codex 复制及缓存设置、采集页筛选后的批量操作。结果 JSON 和截图保存在测试目录；结束时停止测试后端。
 
-截至 2026-09-19，上述 7 条界面流程已通过；配音草稿跨页恢复及素材库选择范围另做了隔离界面验证，不包含在这 7 条脚本检查内。测试视频配用合成音频和预置字幕，这份脚本不验证真实语音识别准确率。私人素材验收脚本及原始报告未纳入公开仓库；其他限制见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)。
+Windows 桌面新工作区验证：
+
+```powershell
+npm.cmd run build
+npm.cmd run test:desktop
+```
+
+此脚本启动实际 Electron、独立资料库与本地模拟文本服务，验证 AI 草稿/生成/应用/历史/另存、合成直播回放与素材库导入、模型状态目录。不会请求真实直播平台或下载模型。界面流程通过不代表真实语音准确率、平台认证或网络抓取成功；限制见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)。
 
 ## 来源与许可
 
-交互流程参考 Lulu 的公开介绍与操作演示，Windows 程序独立实现。第三方依赖及图标来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本仓库暂未指定代码的开源许可证，各依赖继续遵循其自身许可。
+交互流程参考 Lulu 的公开介绍、操作演示及 v4.3.1 开源实现，Windows 界面和任务管理按本项目技术栈适配。复用协议、第三方依赖及图标来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本仓库暂未指定整体代码许可证，复用代码保留原 MIT 许可，各依赖继续遵循其自身许可。

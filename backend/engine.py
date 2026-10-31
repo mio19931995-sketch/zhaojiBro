@@ -11,13 +11,16 @@ from urllib.parse import urlparse
 
 from opencc import OpenCC
 from . import store
+from . import asr_windows
 
 MODELS = {
     'tiny': {'name': 'Whisper Tiny', 'size': '约 75 MB', 'note': '快速试用，适合短音频'},
     'base': {'name': 'Whisper Base', 'size': '约 145 MB', 'note': '轻量本地转录，适合这台电脑'},
     'small': {'name': 'Whisper Small', 'size': '约 485 MB', 'note': '更好的中文识别，CPU 用时更长'},
-    'large-v3-turbo': {'name': 'Whisper Large v3 Turbo', 'size': '约 1.6 GB', 'note': '高质量转录，建议独立显卡'},
+    'large-v3-turbo': {'name': 'Whisper Large v3 Turbo', 'size': '约 1.6 GB', 'note': '高质量转录，使用 CPU INT8；内存占用和处理耗时高于轻量模型'},
 }
+MODELS.update({name: {key: spec[key] for key in ('name', 'size', 'note')}
+               for name, spec in asr_windows.NATIVE_MODELS.items()})
 model_state = {}
 model_lock = threading.Lock()
 jobs = queue.Queue()
@@ -25,6 +28,7 @@ pending = set()
 cancelled = set()
 job_lock = threading.RLock()
 worker_started = False
+_stopping = threading.Event()
 thumbnail_lock = threading.Lock()
 simplifier = OpenCC('tw2sp')
 
@@ -71,16 +75,25 @@ def model_dir(name):
 
 
 def installed(name):
+    if name in asr_windows.NATIVE_MODELS:
+        return asr_windows.model_status(name)['installed']
+    if asr_windows.external_path(name):
+        return True
     p = model_dir(name)
     return (p / 'model.bin').is_file() and (p / 'config.json').is_file() and (p / '.ready').is_file()
 
 
 def all_models():
-    return [dict(id=k, **v, installed=installed(k), **model_state.get(k, {'state': 'idle', 'message': ''})) for k, v in MODELS.items()]
+    return [asr_windows.model_status(k) if k in asr_windows.NATIVE_MODELS else
+            dict(id=k, **v, installed=installed(k), backend='CTranslate2 · CPU INT8',
+                 external=bool(asr_windows.external_path(k)),
+                 **model_state.get(k, {'state': 'idle', 'message': ''})) for k, v in MODELS.items()]
 
 
 def install_model(name):
     model_dir(name)
+    if name in asr_windows.NATIVE_MODELS:
+        raise ValueError('此模型需导入已有 GGUF 文件；不会自动下载模型权重')
     with model_lock:
         if model_state.get(name, {}).get('state') == 'downloading':
             return
@@ -102,12 +115,14 @@ def install_model(name):
 
 
 def check_cancel(item_id):
-    if item_id in cancelled:
+    if _stopping.is_set() or item_id in cancelled:
         raise InterruptedError('已暂停，可继续处理')
 
 
 def enqueue(item_id):
     with job_lock:
+        if _stopping.is_set():
+            raise ValueError('应用正在退出，暂时不能启动新任务')
         item = store.get(item_id)
         if not item:
             raise ValueError('找不到任务')
@@ -236,9 +251,30 @@ def process(item_id):
     name = item['metadata'].get('model') or cfg['model']
     if not installed(name):
         raise ValueError(f'请先在 AI 大模型页面安装 {MODELS.get(name, {}).get("name", name)}，然后重试')
+    if name in asr_windows.NATIVE_MODELS:
+        store.update(item_id, phase='正在准备本地模型并识别语音', progress=30)
+        try:
+            native = asr_windows.transcribe(name, item['media_path'], cfg['language'], lambda: check_cancel(item_id))
+        except asr_windows.IncompleteResult as exc:
+            # Preserve recoverable words separately; never mark incomplete speaker/timing output as complete.
+            store.update(item_id, metadata=item['metadata'] | {'asr_partial_text': to_simplified(exc.partial_text)})
+            raise
+        check_cancel(item_id)
+        text = to_simplified(native['text'])
+        result = [{**s, 'text': to_simplified(s['text'])} for s in native['segments']]
+        path = store.DATA / 'documents' / f'{item_id}.txt'
+        path.write_text(text, encoding='utf-8')
+        if path.read_text(encoding='utf-8') != text:
+            raise RuntimeError('文稿保存校验失败')
+        metadata = item['metadata'] | {'asr': native['asr'], 'detected_language': native.get('language', '')}
+        metadata.pop('asr_partial_text', None)
+        store.update(item_id, transcript=text, segments=result, duration=native['duration'], metadata=metadata,
+                     status='done', progress=100, phase='转录完成' if text else '处理完成，未检测到语音')
+        assets.finish(item_id)
+        return
     from faster_whisper import WhisperModel
     store.update(item_id, phase='正在加载本地模型', progress=28)
-    model = WhisperModel(str(model_dir(name)), device='cpu', compute_type='int8', cpu_threads=4)
+    model = WhisperModel(str(asr_windows.external_path(name) or model_dir(name)), device='cpu', compute_type='int8', cpu_threads=4)
     check_cancel(item_id)
     store.update(item_id, phase='正在识别语音', progress=30)
     segments, info = model.transcribe(item['media_path'], language=None if cfg['language'] == 'auto' else cfg['language'],
@@ -259,7 +295,10 @@ def process(item_id):
     path.write_text(transcript, encoding='utf-8')
     if path.read_text(encoding='utf-8') != transcript:
         raise RuntimeError('文稿保存校验失败')
-    metadata = item['metadata'] | {'detected_language': getattr(info, 'language', '') or cfg['language']}
+    metadata = item['metadata'] | {'detected_language': getattr(info, 'language', '') or cfg['language'],
+                                  'asr': {'model_id': name, 'runtime': 'faster-whisper', 'backend': 'cpu',
+                                          'timestamp_kind': 'segment', 'diarization': False, 'timing_estimated': False}}
+    metadata.pop('asr_partial_text', None)
     store.update(item_id, transcript=transcript, segments=result, duration=duration, metadata=metadata,
                  status='done', progress=100, phase='转录完成' if result else '处理完成，未检测到语音')
     assets.finish(item_id)
@@ -268,6 +307,8 @@ def process(item_id):
 
 def start_worker():
     global worker_started
+    asr_windows.reset_shutdown()
+    _stopping.clear()
     if worker_started:
         return
     worker_started = True
@@ -290,6 +331,19 @@ def start_worker():
     threading.Thread(target=loop, daemon=True).start()
 
 
+def shutdown(timeout=8):
+    """Cancel queued/current work and reap owned native children before app exit."""
+    deadline = time.monotonic() + max(0, min(float(timeout), 8))
+    _stopping.set()
+    # A concurrent SQLite enqueue must not consume the native-process exit budget.
+    if job_lock.acquire(timeout=min(.25, max(0, deadline - time.monotonic()))):
+        try:
+            cancelled.update(pending)
+        finally:
+            job_lock.release()
+    return asr_windows.shutdown(timeout=max(0, deadline - time.monotonic()))
+
+
 def stamp(seconds, srt=False):
     ms = round(max(0, seconds) * 1000)
     hh, rest = divmod(ms, 3600000)
@@ -305,7 +359,9 @@ def export_content(item, fmt):
         return to_simplified('\n\n'.join(f'{i+1}\n{stamp(s["start"], True)} --> {stamp(s["end"], True)}\n{s["text"]}' for i, s in enumerate(item['segments'])) + '\n')
     if fmt == 'md':
         source = f'\n来源：{item["source_url"]}\n' if item['source_url'] else ''
-        body = '\n\n'.join(f'[{stamp(s["start"])}] {s["text"]}' for s in item['segments']) if item['segments'] else item['transcript']
+        body = '\n\n'.join(f'[{stamp(s["start"])}] ' +
+                          (f'发言人 {s["speaker_id"]}：' if s.get('speaker_id') else '') + s['text']
+                          for s in item['segments']) if item['segments'] else item['transcript']
         return to_simplified(f'# {item["title"]}\n{source}\n{body}\n')
     return to_simplified(item['transcript'])
 

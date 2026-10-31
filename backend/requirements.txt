@@ -6,3 +6,6 @@ yt-dlp>=2026.3.3
 httpx>=0.28,<1
 opencc-python-reimplemented>=0.1.7,<1
 pytest>=8,<10
+requests>=2.31,<3
+websocket-client>=1.9,<2
+transcribe-cpp==0.4.0
