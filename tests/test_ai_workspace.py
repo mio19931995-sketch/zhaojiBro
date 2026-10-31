@@ -204,7 +204,7 @@ def test_cancel_after_completion_reports_completed_result(client, monkeypatch):
     assert response['run']['status'] == 'done' and response['run']['result'] == '已经完成'
 
 
-def test_context_uses_last_ten_messages_and_refuses_oversized_context(client, monkeypatch):
+def test_context_keeps_all_messages_and_refuses_oversized_uncompressible_turn(client, monkeypatch):
     work = workspace(client)
     work['messages'] = [{'role': 'user' if i % 2 == 0 else 'assistant', 'text': f'历史消息{i}'} for i in range(12)]
     store.object_put('ai_workspace', work['id'], work)
@@ -215,13 +215,16 @@ def test_context_uses_last_ten_messages_and_refuses_oversized_context(client, mo
     monkeypatch.setattr(ai, 'request_completion', complete)
     send(client, work)
     finished(client, work)
-    assert [message['content'] for message in sent[1:-1]] == [f'历史消息{i}' for i in range(2, 12)]
+    assert [message['content'] for message in sent[1:-1]] == [f'历史消息{i}' for i in range(12)]
     value = store.object_get('ai_workspace', work['id'])
     value['messages'] = [{'role': 'assistant', 'text': '长' * 60001}]
     store.object_put('ai_workspace', work['id'], value)
     response = client.post(f"/api/ai/workspaces/{work['id']}/runs", json={'revision': 0, 'instruction': '继续'})
-    assert response.status_code == 400 and '新建对话' in response.json()['detail']
-    assert len(sent) == 12
+    assert response.status_code == 200
+    failed = finished(client, work, 'error')
+    assert '容量' in failed['run']['error']
+    assert failed['messages'][0]['text'] == '长' * 60001
+    assert len(sent) == 14
 
 
 def test_manual_document_save_creates_once_then_versions_changes(client):
