@@ -210,7 +210,11 @@ async def test_llm_connection(url, model, supplied_key=''):
 
 
 def process_text(text, action, instruction=''):
-    from . import ai_translation, engine
+    from . import ai_translation, ai_proofreading, ai_skills, engine
+    proofread = {'preset': action, 'instruction': instruction, 'skill_entries': ai_skills.freeze()['entries']}
+    strict = ai_proofreading.enabled(proofread)
+    if strict:
+        ai_proofreading.check_input(text)
     cfg = store.settings()
     base, model = normalize_llm_config(cfg['llm_url'], cfg['llm_model'])
     if not model:
@@ -220,6 +224,8 @@ def process_text(text, action, instruction=''):
     prompt = PROMPTS.get(action, PROMPTS['rewrite'])
     if instruction.strip():
         prompt += '\n用户补充要求：' + instruction.strip()
+    if strict:
+        prompt += ai_proofreading.SYSTEM
     with httpx.Client(timeout=300, trust_env=False, follow_redirects=False) as client:
         def complete(messages):
             return llm_post(client, base, headers, {'model': model, 'messages': messages,
@@ -234,17 +240,24 @@ def process_text(text, action, instruction=''):
                                 {'role': 'user', 'content': json.dumps({'text': window}, ensure_ascii=False)}])
                 terms = ai_translation.names(list(dict.fromkeys(terms + ai_translation.parse_inventory(raw, window))))
             guard = ai_translation.BrandLock(text, terms)
-        for part in ai_translation.parts(text, guard.terms) if guard else chunks(text):
+        parts = list(ai_translation.parts(text, guard.terms) if guard else ai_proofreading.parts(text) if strict else chunks(text))
+        for part in parts:
             messages = [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': part}]
             for attempt in range(2 if guard else 1):
                 raw = complete(guard.messages(messages, bool(attempt)) if guard else messages)
                 try:
-                    outputs.append(guard.restore(raw, part, engine.to_simplified) if guard else raw)
-                    break
+                    result = guard.restore(raw, part, engine.to_simplified) if guard else engine.to_simplified(raw)
                 except ValueError:
                     if attempt:
                         raise
-    joined = '\n\n'.join(outputs)
+                    continue
+                if strict:
+                    ai_proofreading.validate(part, result, engine.to_simplified)
+                outputs.append(result)
+                break
+    joined = ai_proofreading.join_parts(parts, outputs) if strict else '\n\n'.join(outputs)
+    if strict:
+        ai_proofreading.validate(text, joined, engine.to_simplified)
     return ai_translation.TranslatedText(joined, guard.terms) if guard else joined
 
 

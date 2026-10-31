@@ -249,8 +249,8 @@ def test_saved_key_is_reused_only_for_same_origin_and_process_text_remains_compa
 def test_legacy_process_text_and_local_without_key_still_work(monkeypatch):
     legacy_config()
     calls, _ = mock_http(monkeypatch, lambda request: answer('正文'))
-    assert integrations.process_text('原文', 'correct') == '正文'
+    assert integrations.process_text('正文', 'correct') == '正文'
     assert calls[0].headers['Authorization'] == 'Bearer deepseek-test-key'
     client.patch('/api/settings', json={'llm_url': 'http://127.0.0.1:11434/v1', 'llm_model': 'local-model'})
-    assert integrations.process_text('原文', 'correct') == '正文'
+    assert integrations.process_text('正文', 'correct') == '正文'
     assert 'authorization' not in calls[-1].headers

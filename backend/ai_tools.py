@@ -223,6 +223,9 @@ def execute(call, run):
     if identity == 'create_document':
         if not args['title'].strip() or not args['markdown'].strip():
             raise ValueError('新文稿标题和正文不能为空')
+        from . import ai_proofreading
+        if ai_proofreading.enabled(run):
+            ai_proofreading.validate(run['input_text'], args['markdown'], engine.to_simplified)
         return pending_action(run, call, {'title': args['title'], 'text': args['markdown']})
     if identity == 'create_skill_draft':
         value = ai_skills.draft_package(args['name'], args['description'], args['instructions'])

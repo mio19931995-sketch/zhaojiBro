@@ -24,3 +24,5 @@
 直播协议、签名与弹幕适配来自官方 Lulu v4.3.1（提交 `8ae31a76e1e135e6e016c46e270e9992c7162a51`）。其 MIT 许可及继承的第三方声明随相应模块保存，具体文件与改动见 `docs/LIVE_PORT.md`。本项目保留官方来源版权声明，不将第三方代码改用本仓库其他许可。界面色彩与功能组织参考官方公开主题；没有复制官方吉祥物或商业授权资源。
 
 `backend/agent-skills/packages/` 的六项内置技能 Markdown 与目录元数据来自同一 Lulu v4.3.1，保留原内容与 `backend/agent-skills/LICENSE.Lulu` 的 MIT 许可。Windows 技能包管理和封闭工具集参照公开数据流程实现；技能包保存为本地 SQLite 数据，不使用 macOS 文件锁或执行包内脚本。
+
+`backend/ai_proofreading.py` 的数字/链接匹配表达式和严格校对阈值适配自同一版本的 `app/src/core/agent_workspace/processing.py`，沿用上述 MIT 许可及版权声明。Windows 另加分段保护、失败回复只读展示、简体转换时保留 URL，以及有界的相似度比对。

@@ -49,6 +49,9 @@ const server = http.createServer(async (req, res) => {
         if (res.destroyed) return;
       }
       message = { role: 'assistant', content: mode === 'manual-bad' ? '这不是一个有效摘要对象' : JSON.stringify(summary) };
+    } else if (mode.startsWith('proof-')) {
+      if (mode !== 'proof-disabled') assert(JSON.stringify(body.messages).includes('本轮启用严格校对'));
+      message = { role: 'assistant', content: mode === 'proof-good' ? fixtures.proof.transcript.replace('测式', '测试') : fixtures.proof.transcript.replaceAll('199', '299') };
     } else if (mode === 'brand') {
       if (body.messages[0].content.startsWith('识别材料中的品牌名')) {
         message = { role: 'assistant', content: JSON.stringify({ brands: ['松果X1'] }) };
@@ -442,6 +445,50 @@ try {
   await choose(fixtures.brand);
   await page.screenshot({ path: path.join(data, 'brand-translation-result.png') });
   checks.push('Brand preferences survive reload; invalid translation is withheld and retried once; restored names and repeated mentions render and save exactly');
+
+  await choose(fixtures.proof);
+  await page.getByLabel('本轮技能', { exact: true }).selectOption('lulu-proofread');
+  mode = 'proof-bad';
+  const blocked = await send(fixtures.proof, '只校正错别字，保持其余内容。', 'error');
+  assert.equal(blocked.run.proofreading_check.reason, 'protected_tokens');
+  assert.equal(blocked.run.result, '');
+  assert.equal(blocked.text, fixtures.proof.transcript);
+  const refused = page.getByLabel('未通过的校对回复');
+  await refused.locator('summary').click();
+  assert((await refused.innerText()).includes('299'));
+  assert.equal(await page.getByRole('button', { name: '应用到文稿', exact: true }).count(), 0);
+  assert.equal((await request(`/ai/workspaces/${blocked.id}/results/${blocked.run.id}/save-output`, 'POST')).status, 400);
+  await page.screenshot({ path: path.join(data, 'strict-proofreading-blocked.png') });
+  await page.reload(); await choose(fixtures.proof);
+  assert((await page.getByLabel('严格校对状态').innerText()).includes('未通过'));
+  checks.push('Strict proofreading rejects changed numbers and URLs, preserves the read-only reply across reload and blocks save/apply without changing the draft');
+
+  mode = 'proof-good';
+  const corrected = await send(fixtures.proof, '仅把测式校正为测试，其余逐字保留。');
+  assert.equal(corrected.run.proofreading_check.state, 'passed');
+  await waitFor(async () => (await page.getByLabel('严格校对状态').innerText()).includes('通过：'), 'strict check passed in UI');
+  await page.getByRole('button', { name: '另存结果', exact: true }).last().click();
+  await waitFor(async () => !!(await work(fixtures.proof)).run.saved_output_id, 'strict result saved');
+  const correctedItem = await api(`/items/${(await work(fixtures.proof)).run.saved_output_id}`);
+  assert.equal(correctedItem.transcript, fixtures.proof.transcript.replace('测式', '测试'));
+  assert.equal((await api(`/items/${fixtures.proof.id}`)).transcript, fixtures.proof.transcript);
+  await choose(fixtures.proof);
+  checks.push('A small valid correction passes numeric, URL and similarity checks and can be saved without changing its source');
+
+  dialog = await manager('技能');
+  await dialog.locator('[data-name="lulu-proofread"]').getByRole('button', { name: '查看技能', exact: true }).click();
+  assert(await dialog.getByLabel('严格校对', { exact: true }).isChecked());
+  await dialog.getByLabel('严格校对', { exact: true }).setChecked(false);
+  await dialog.getByRole('button', { name: '保存技能偏好', exact: true }).click();
+  await waitFor(async () => (await api('/ai/skills/lulu-proofread')).config.strict === false, 'strict preference persisted');
+  await closeManager();
+  await page.reload(); await choose(fixtures.proof);
+  mode = 'proof-disabled';
+  const relaxed = await send(fixtures.proof, '本次按已保存的偏好处理正文。');
+  assert(!relaxed.run.proofreading_check);
+  assert(relaxed.run.result.includes('299'));
+  assert.equal((await api(`/items/${fixtures.proof.id}`)).transcript, fixtures.proof.transcript);
+  checks.push('Strict mode is a visible, persistent proofreading preference; disabling it affects the next run without silently modifying any source');
 
   dialog = await manager('工具');
   const nativeWindow = await app.browserWindow(page);
