@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import store, engine, integrations, secrets, workflows, assets, review, codex_connection, live, ai_workspace, asr_windows
+from . import store, engine, integrations, secrets, workflows, assets, review, codex_connection, live, ai_workspace, asr_windows, video_tools
 
 
 @asynccontextmanager
@@ -27,12 +27,13 @@ async def lifespan(app):
     engine.simplify_saved_content()
     engine.start_worker()
     ai_workspace.recover()
+    video_tools.recover()
     live.startup()
     try:
         yield
     finally:
         await asyncio.gather(ai_workspace.shutdown(), asyncio.to_thread(live.shutdown),
-                             asyncio.to_thread(engine.shutdown, 8))
+                             asyncio.to_thread(engine.shutdown, 8), asyncio.to_thread(video_tools.shutdown))
 
 
 app = FastAPI(title='Lulu Workbench', lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -42,6 +43,7 @@ app.include_router(codex_connection.router)
 app.include_router(live.router)
 app.include_router(ai_workspace.router)
 app.include_router(asr_windows.router)
+app.include_router(video_tools.router)
 
 
 @app.middleware('http')

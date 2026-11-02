@@ -14,13 +14,14 @@ import { TrashView } from './Recovery';
 import { CodexConnection } from './CodexConnection';
 import { LiveWorkspace } from './LiveWorkspace';
 import { AIWorkbench } from './AIWorkbench';
+import VideoTools from './VideoTools';
 
 const NAV = [
   { group: '工作台', items: [['extract','文案提取',Headphones],['collect','主页采集',User],['live','直播录制',Record],['process','文案处理',FileText]] },
   { group: '素材库', items: [['library','文稿库',Folder],['output-library','输出库',PencilSimple],['voice-library','音频库',Waveform],['trash','回收站',Trash]] },
   { group: '配置与连接', items: [['models','AI 大模型',Cube],['codex','Codex 连接',Link],['obsidian','Obsidian 知识库',BookOpen],['feishu','飞书知识库',CloudArrowUp]] },
 ] as const;
-const TOOLS = [['voice','文案配音',Microphone],['clip','直播切片',Scissors],['clip-library','切片库',List]] as const;
+const TOOLS = [['video-tools','视频处理',Scissors],['voice','文案配音',Microphone],['clip','直播切片',Scissors],['clip-library','切片库',List]] as const;
 const TITLES: Record<string, [string, string]> = {
   extract: ['文案提取', '导入音视频或粘贴作品、文章图文链接，提取文稿。'],
   process: ['AI 文稿工作区', '原文与助手并排，先看建议，再决定如何保存。'],
@@ -28,6 +29,7 @@ const TITLES: Record<string, [string, string]> = {
   outputs: ['内容输出', '在这里查看、编辑和导出处理后的文稿。'],
   voice: ['文案配音', '使用 Windows 本地语音，把文稿变成声音。'],
   clip: ['直播切片', '导入直播录播或本地素材，按起止时间保存片段。'],
+  'video-tools': ['视频处理', '自定义每秒删帧与品牌水印，保留原文件，另存处理后的视频。'],
   collect: ['主页采集', '粘贴公开主页或播放列表链接，选择作品，批量收集与转录。'],
   library: ['文稿库', '转录和导入的文稿都在这里，可以查看、整理、导出和继续处理。'],
   'output-library': ['输出库', '保存文案处理的结果，每一份原文仍然保留。'],
@@ -70,14 +72,14 @@ export default function App() {
   const select = (id: string) => { setSelected(id); setInspector(true); };
   const shared: Shared = { state, refresh, notify, select, selected, processingSource, navigate };
   const model = state.models.find(m => m.id === state.settings.model);
-  const showInspector = inspector && !['settings', 'models', 'codex', 'feishu', 'obsidian', 'trash', 'live', 'process'].includes(page) && (page !== 'collect' || !!selected);
+  const showInspector = inspector && !['settings', 'models', 'codex', 'feishu', 'obsidian', 'trash', 'live', 'process', 'video-tools'].includes(page) && (page !== 'collect' || !!selected);
   const current = state.items.find(i => i.id === selected);
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="sidebar-tools"><Button title="设置" onClick={() => navigate('settings')}><GearSix size={17}/></Button><span>LULU</span></div>
       <button className="brand" aria-label="返回文案提取" onClick={() => navigate('extract')}><img src="/app-icon.svg" alt="Lulu"/><span>Lulu<span className="brand-sub">内容工作台</span></span></button>
       <nav aria-label="主导航">{NAV.map(group => <div className="nav-group" key={group.group}><div className="nav-label">{group.group}</div>{group.items.map(([id, label, Icon]) => <button key={id} className={`nav-item ${page === id ? 'active' : ''}`} onClick={() => navigate(id)}><Icon size={18}/><span>{label}</span>{id === 'extract' && state.items.some(i => i.status === 'processing') && <span className="nav-dot"/>}</button>)}</div>)}</nav>
-      <details className="creation-tools" open={TOOLS.some(([id]) => id === page) || undefined}><summary>配音与切片</summary>{TOOLS.map(([id,label,Icon]) => <button className={`nav-item ${page === id ? 'active' : ''}`} key={id} onClick={() => navigate(id)}><Icon size={18}/>{label}</button>)}</details>
+      <details className="creation-tools" open={TOOLS.some(([id]) => id === page) || undefined}><summary>视频与配音</summary>{TOOLS.map(([id,label,Icon]) => <button className={`nav-item ${page === id ? 'active' : ''}`} key={id} onClick={() => navigate(id)}><Icon size={18}/>{label}</button>)}</details>
       <button className="model-status" onClick={() => navigate('models')}><Cube size={19}/><span><strong>{model?.name || '本地转录模型'}</strong><small><i className={model?.installed ? 'ready-dot' : 'wait-dot'}/>{model?.installed ? '本地模型 · 已就绪' : '安装模型后开始转录'}</small></span><CaretRight size={13}/></button>
     </aside>
     <div className="app-main">
@@ -91,6 +93,7 @@ export default function App() {
           {page === 'live' && <LiveWorkspace {...shared}/>}
           {page === 'voice' && <Voice {...shared}/>}
           {page === 'clip' && <Clip {...shared}/>}
+          {page === 'video-tools' && <VideoTools {...shared}/>}
           {page === 'trash' && <TrashView {...shared}/>}
           {page === 'models' && <Models {...shared}/>}
           {page === 'codex' && <CodexConnection {...shared}/>}
