@@ -50,6 +50,7 @@ cookies*.txt
 !/tests/electron-lifecycle.mjs
 !/tests/article-reader.mjs
 !/tests/platform-articles.mjs
+!/tests/video-tools-desktop.mjs
 /tests/smoke_live.py
 /tests/probe-subtitles.py
 

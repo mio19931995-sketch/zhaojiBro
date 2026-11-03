@@ -155,7 +155,8 @@ def test_cancel_stops_owned_subprocess():
 def test_shutdown_reaps_real_native_process_tree_within_budget(tmp_path):
     """Exercise the real Windows launcher/grandchild chain, without model weights."""
     child_pid_file = tmp_path / 'native-child.pid'
-    child_code = 'import os,sys,time;from pathlib import Path;Path(sys.argv[1]).write_text(str(os.getpid()));time.sleep(30)'
+    # Publish the PID atomically: existence must mean the complete value is readable.
+    child_code = 'import os,sys,time;from pathlib import Path;p=Path(sys.argv[1]);t=p.with_suffix(".tmp");t.write_text(str(os.getpid()));t.replace(p);time.sleep(30)'
     parent_code = 'import subprocess,sys,time;subprocess.Popen([sys.executable,"-c",sys.argv[1],sys.argv[2]]);time.sleep(30)'
     errors = []
     def run():

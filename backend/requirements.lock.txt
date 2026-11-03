@@ -75,6 +75,8 @@ packaging==26.3
     #   huggingface-hub
     #   onnxruntime
     #   pytest
+pillow==12.3.0
+    # via -r backend/requirements.txt
 pluggy==1.6.0
     # via pytest
 protobuf==7.36.1
